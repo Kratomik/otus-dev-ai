@@ -5,8 +5,9 @@ rm -rf node_modules
 - Установить зависимости:
 npm install
 
-- Запустить приложение из папки frontend
+- Запустить приложение из папки frontend:
 npm run dev
 
-- Запустить тесты из папки frontend
+- Запустить тесты из папки frontend:
 npm test
+
