@@ -11,3 +11,9 @@ npm run dev
 - Запустить тесты из папки frontend:
 npm test
 
+**Залогинится в интерфейсе можно:**
+
+```bash
+login    - bbbb@bbbbb.com
+password - KratoMik7!
+```
