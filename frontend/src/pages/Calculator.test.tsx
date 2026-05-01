@@ -20,7 +20,7 @@ vi.mock('../components/EmissionsPieChart', () => ({
 }))
 
 const clickCalculate = () => {
-  fireEvent.click(screen.getByRole('button', { name: /calculate/i }))
+  fireEvent.click(screen.getByRole('button', { name: /рассчитать|calculate/i }))
 }
 
 describe('Calculator', () => {
@@ -43,7 +43,7 @@ describe('Calculator', () => {
     clickCalculate()
 
     expect(
-      screen.getByText('Values must be non-negative numbers.'),
+      screen.getByText('Значения должны быть неотрицательными числами.'),
     ).toBeInTheDocument()
   })
 

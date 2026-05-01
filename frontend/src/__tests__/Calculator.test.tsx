@@ -46,7 +46,7 @@ describe('Calculator', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/values must be non-negative numbers/i),
+        screen.getByText(/значения должны быть неотрицательными числами/i),
       ).toBeInTheDocument()
     })
   })

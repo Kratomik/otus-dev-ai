@@ -1,4 +1,6 @@
-import { lazy, memo, Suspense, useMemo, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCalculations } from '../hooks/useEcoData'
+import { useSession } from '../hooks/useSession'
 
 type ViewState = 'idle' | 'loading' | 'error' | 'success'
 
@@ -25,11 +27,22 @@ const initialInputs: CalculatorInputs = {
 }
 
 function Calculator() {
+  const { currentUser } = useSession()
+  const { saveCalculation, saving, error: saveError } = useCalculations()
   const [inputs, setInputs] = useState<CalculatorInputs>(initialInputs)
   const [state, setState] = useState<ViewState>('idle')
   const [errorMessage, setErrorMessage] = useState('')
   const [totalTons, setTotalTons] = useState(0)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
+
+  const didAttemptSaveRef = useRef(false)
+
+  useEffect(() => {
+    if (!didAttemptSaveRef.current) return
+    if (!saveError) return
+    window.alert(saveError)
+    didAttemptSaveRef.current = false
+  }, [saveError])
 
   const handleInputChange = (field: keyof CalculatorInputs, value: string) => {
     setInputs((prev) => ({ ...prev, [field]: value }))
@@ -41,43 +54,60 @@ function Calculator() {
 
   const parseValue = (raw: string): number => (raw.trim() === '' ? 0 : Number(raw))
 
-  const handleCalculate = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const handleCalculate = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
 
-    const transport = parseValue(inputs.transport)
-    const food = parseValue(inputs.food)
-    const energy = parseValue(inputs.energy)
-    const shopping = parseValue(inputs.shopping)
+      const transport = parseValue(inputs.transport)
+      const food = parseValue(inputs.food)
+      const energy = parseValue(inputs.energy)
+      const shopping = parseValue(inputs.shopping)
 
-    const values = [transport, food, energy, shopping]
-    const hasInvalid = values.some((value) => Number.isNaN(value) || value < 0)
+      const values = [transport, food, energy, shopping]
+      const hasInvalid = values.some((value) => Number.isNaN(value) || value < 0)
 
-    if (hasInvalid) {
-      setState('error')
-      setErrorMessage('Values must be non-negative numbers.')
-      return
-    }
+      if (hasInvalid) {
+        setState('error')
+        setErrorMessage('Значения должны быть неотрицательными числами.')
+        return
+      }
 
-    setState('loading')
-    setErrorMessage('')
+      setState('loading')
+      setErrorMessage('')
 
-    window.setTimeout(() => {
-      const transportCo2 = transport * 0.21
-      const foodCo2 = food * 0.18
-      const energyCo2 = energy * 0.23
-      const shoppingCo2 = shopping * 0.15
-      const total = transportCo2 + foodCo2 + energyCo2 + shoppingCo2
+      window.setTimeout(() => {
+        const transportCo2 = transport * 0.21
+        const foodCo2 = food * 0.18
+        const energyCo2 = energy * 0.23
+        const shoppingCo2 = shopping * 0.15
+        const total = transportCo2 + foodCo2 + energyCo2 + shoppingCo2
 
-      setTotalTons(total)
-      setChartData([
-        { name: 'Transport', value: transportCo2 },
-        { name: 'Food', value: foodCo2 },
-        { name: 'Energy', value: energyCo2 },
-        { name: 'Shopping', value: shoppingCo2 },
-      ])
-      setState('success')
-    }, 400)
-  }
+        setTotalTons(total)
+        setChartData([
+          { name: 'Transport', value: transportCo2 },
+          { name: 'Food', value: foodCo2 },
+          { name: 'Energy', value: energyCo2 },
+          { name: 'Shopping', value: shoppingCo2 },
+        ])
+        setState('success')
+
+        if (!currentUser) {
+          window.alert('Нужно войти в аккаунт, чтобы сохранить расчёт.')
+          return
+        }
+
+        didAttemptSaveRef.current = true
+        void saveCalculation({
+          transport,
+          food,
+          energy,
+          shopping,
+          totalCo2: total,
+        })
+      }, 400)
+    },
+    [currentUser, inputs.energy, inputs.food, inputs.shopping, inputs.transport, saveCalculation],
+  )
 
   const difference = totalTons - RF_AVERAGE
   const fields = useMemo(
@@ -127,9 +157,18 @@ function Calculator() {
 
         <button
           type="submit"
+          disabled={state === 'loading' || saving}
           className="min-h-[44px] w-full rounded-xl bg-[#2979FF] px-4 py-2 font-semibold text-white transition-colors hover:bg-[#1E67E6] focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2 motion-reduce:transition-none"
         >
-          Calculate
+          <span className="inline-flex items-center justify-center gap-2">
+            {(state === 'loading' || saving) && (
+              <span
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              />
+            )}
+            {saving ? 'Сохранение…' : 'Рассчитать'}
+          </span>
         </button>
       </form>
 

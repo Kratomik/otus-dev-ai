@@ -1,65 +1,39 @@
-import { memo, useEffect, useMemo, useState } from 'react'
-
-interface Recommendation {
-  id: string
-  text: string
-  co2Savings: string
-  difficulty: 'Легко' | 'Средне' | 'Сложно'
-  impact: number
-}
-
-type ViewState = 'loading' | 'error' | 'success'
-
-const MOCK_RECOMMENDATIONS: Recommendation[] = [
-  {
-    id: 'r1',
-    text: 'Замените 3 поездки на авто в неделю на общественный транспорт.',
-    co2Savings: '-0.42 т CO2/год',
-    difficulty: 'Средне',
-    impact: 8,
-  },
-  {
-    id: 'r2',
-    text: 'Перейдите на LED-освещение во всех жилых комнатах.',
-    co2Savings: '-0.18 т CO2/год',
-    difficulty: 'Легко',
-    impact: 6,
-  },
-  {
-    id: 'r3',
-    text: 'Снизьте долю импульсивных покупок новых вещей на 30%.',
-    co2Savings: '-0.33 т CO2/год',
-    difficulty: 'Сложно',
-    impact: 7,
-  },
-]
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useRecommendations } from '../hooks/useEcoData'
 
 function Recommendations() {
-  const [state, setState] = useState<ViewState>('loading')
-  const [items, setItems] = useState<Recommendation[]>([])
+  const { items, loading, error, success, reload } = useRecommendations()
   const [showCards, setShowCards] = useState(false)
-  const recommendationItems = useMemo(() => MOCK_RECOMMENDATIONS, [])
-
-  const loadRecommendations = () => {
-    setState('loading')
-    setShowCards(false)
-    const timer = window.setTimeout(() => {
-      try {
-        setItems(recommendationItems)
-        setState('success')
-        window.requestAnimationFrame(() => setShowCards(true))
-      } catch {
-        setState('error')
-      }
-    }, 700)
-
-    return timer
-  }
+  const didAlertRef = useRef(false)
 
   useEffect(() => {
-    const timer = loadRecommendations()
-    return () => window.clearTimeout(timer)
-  }, [recommendationItems])
+    if (!error) {
+      didAlertRef.current = false
+      return
+    }
+    if (didAlertRef.current) return
+    window.alert(error)
+    didAlertRef.current = true
+  }, [error])
+
+  useEffect(() => {
+    if (!success) return
+    setShowCards(false)
+    const id = window.requestAnimationFrame(() => setShowCards(true))
+    return () => window.cancelAnimationFrame(id)
+  }, [success, items.length])
+
+  const viewItems = useMemo(
+    () =>
+      items.map((item) => ({
+        id: String(item.id),
+        text: item.text,
+        co2Savings: item.co2_saving,
+        difficulty: item.difficulty ?? 'Средне',
+        impact: item.impact ?? 5,
+      })),
+    [items],
+  )
 
   return (
     <section aria-live="polite" className="space-y-4">
@@ -70,18 +44,24 @@ function Recommendations() {
         </p>
       </header>
 
-      {state === 'loading' && (
+      {loading && (
         <div className="rounded-2xl border border-[#2979FF]/20 bg-white p-4">
-          <p className="font-medium text-[#2979FF]">Loading personalized tips...</p>
+          <p className="inline-flex items-center gap-2 font-medium text-[#2979FF]">
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 animate-spin rounded-full border-2 border-[#2979FF]/30 border-t-[#2979FF]"
+            />
+            Loading personalized tips...
+          </p>
         </div>
       )}
 
-      {state === 'error' && (
+      {!!error && (
         <div className="space-y-3 rounded-2xl border border-red-300 bg-red-50 p-4">
           <p className="font-medium text-red-700">Could not load recommendations.</p>
           <button
             type="button"
-            onClick={loadRecommendations}
+            onClick={reload}
             aria-label="Retry loading recommendations"
             className="min-h-[44px] rounded-xl bg-[#0D1B2A] px-4 py-2 text-sm font-semibold text-white"
           >
@@ -90,7 +70,7 @@ function Recommendations() {
         </div>
       )}
 
-      {state === 'success' && items.length === 0 && (
+      {success && viewItems.length === 0 && (
         <div className="space-y-3 rounded-2xl border border-[#2979FF]/20 bg-white p-4">
           <p className="font-medium text-[#0D1B2A]">No recommendations yet.</p>
           <p className="text-sm text-[#0D1B2A]">
@@ -98,7 +78,7 @@ function Recommendations() {
           </p>
           <button
             type="button"
-            onClick={loadRecommendations}
+            onClick={reload}
             aria-label="Refresh recommendations"
             className="min-h-[44px] rounded-xl bg-[#2979FF] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1E67E6] active:bg-[#1757BD] motion-reduce:transition-none"
           >
@@ -107,9 +87,9 @@ function Recommendations() {
         </div>
       )}
 
-      {state === 'success' && items.length > 0 && (
+      {success && viewItems.length > 0 && (
         <ul className="space-y-3">
-          {items.map((item, index) => (
+          {viewItems.map((item, index) => (
             <li
               key={item.id}
               aria-label={`Recommendation ${index + 1}: ${item.difficulty}, impact ${item.impact} out of 10`}
