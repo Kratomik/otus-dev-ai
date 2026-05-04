@@ -1,11 +1,18 @@
-# Развёртывание self-hosted Supabase (backend/docker-compose.yml) на self-hosted runner.
-# Требования на runner: labels linux + backend, Docker и Compose v2, файл backend/.env (не в git).
-name: Deploy Backend
+# Постоянный бекенд (Docker Compose) на машине GitHub НЕ остаётся: job заканчивается — ВМ удаляется.
+# Поэтому отдельный «деплой в Actions» без внешней платформы невозможен: здесь только проверка compose в CI.
+# Реальный хостинг: свой VPS, Render/Railway/Fly (подключение репозитория в UI), или Supabase Cloud — без SSH-ключей в workflow.
+#
+# Настройки не нужны: используется закоммиченный backend/.env.example (шаблон Supabase, только для валидации).
+name: Backend stack (compose check)
 
 on:
   push:
     branches:
       - master
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  pull_request:
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
@@ -15,41 +22,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-backend
+  group: backend-compose-ci
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    name: Deploy backend on self-hosted runner
-    runs-on:
-      - self-hosted
-      - linux
-      - backend
-    timeout-minutes: 30
+  validate-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
+        working-directory: backend
         shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Docker and Compose versions
-        working-directory: backend
-        run: |
-          docker version
-          docker compose version
-
-      - name: Validate Compose configuration
-        working-directory: backend
-        run: docker compose config -q
-
-      - name: Pull images and start stack
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          docker compose pull
-          docker compose up -d --remove-orphans --wait
-
-      - name: Service status
-        working-directory: backend
-        run: docker compose ps -a
+      - name: Validate Compose (env from .env.example)
+        run: docker compose --env-file .env.example config -q
