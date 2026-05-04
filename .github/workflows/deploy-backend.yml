@@ -1,3 +1,5 @@
+# Развёртывание self-hosted Supabase (backend/docker-compose.yml) на self-hosted runner.
+# Требования на runner: labels linux + backend, Docker и Compose v2, файл backend/.env (не в git).
 name: Deploy Backend
 
 on:
@@ -8,6 +10,9 @@ on:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-backend
@@ -20,14 +25,31 @@ jobs:
       - self-hosted
       - linux
       - backend
-    timeout-minutes: 20
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy backend containers
+      - name: Docker and Compose versions
         working-directory: backend
         run: |
-          set -e
+          docker version
+          docker compose version
+
+      - name: Validate Compose configuration
+        working-directory: backend
+        run: docker compose config -q
+
+      - name: Pull images and start stack
+        working-directory: backend
+        run: |
+          set -euo pipefail
           docker compose pull
-          docker compose up -d --remove-orphans
+          docker compose up -d --remove-orphans --wait
+
+      - name: Service status
+        working-directory: backend
+        run: docker compose ps -a
