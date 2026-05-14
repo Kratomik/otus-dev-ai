@@ -1,3 +1,7 @@
+-- УСТАРЕЛО: не используйте как миграцию. На recommendations есть политика без
+-- ENABLE ROW LEVEL SECURITY; у profiles нет RLS. Канон: backend/supabase_migration.sql
+-- и при необходимости backend/supabase_security_patch.sql
+--
 -- 1. Профили пользователей (расширяет auth.users)
 CREATE TABLE profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,

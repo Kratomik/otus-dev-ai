@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { signIn } from '../lib/supabase'
 import { useSession } from '../hooks/useSession'
 
@@ -34,18 +34,19 @@ function Login() {
   return (
     <section aria-live="polite" className="mx-auto w-full max-w-md space-y-4">
       <header>
-        <h2 className="text-2xl font-bold">Login</h2>
-        <p className="mt-1 text-sm text-[#0D1B2A]/75">Sign in to sync your data across devices.</p>
+        <h2 className="text-2xl font-bold">Вход</h2>
+        <p className="mt-1 text-sm text-[#0D1B2A]/75">Войдите, чтобы синхронизировать данные между устройствами.</p>
       </header>
 
       <form
         noValidate
         onSubmit={onSubmit}
         className="space-y-3 rounded-2xl border border-[#2979FF]/20 bg-white p-4"
+        aria-label="Форма входа"
       >
         <div className="space-y-1">
           <label htmlFor="login-email" className="block text-sm font-medium">
-            Email
+            Электронная почта
           </label>
           <input
             id="login-email"
@@ -60,7 +61,7 @@ function Login() {
 
         <div className="space-y-1">
           <label htmlFor="login-password" className="block text-sm font-medium">
-            Password
+            Пароль
           </label>
           <input
             id="login-password"
@@ -77,9 +78,19 @@ function Login() {
           disabled={state === 'loading'}
           className="min-h-[44px] w-full rounded-xl bg-[#2979FF] px-4 py-2 font-semibold text-white transition-colors hover:bg-[#1E67E6] focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2 motion-reduce:transition-none disabled:opacity-70"
         >
-          {state === 'loading' ? 'Signing in…' : 'Sign in'}
+          {state === 'loading' ? 'Вход…' : 'Войти'}
         </button>
       </form>
+
+      <p className="text-center text-sm text-[#0D1B2A]/80">
+        Нет аккаунта?{' '}
+        <Link
+          to="/register"
+          className="font-semibold text-[#2979FF] underline underline-offset-2 hover:text-[#1E67E6] focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2 rounded-sm"
+        >
+          Зарегистрироваться
+        </Link>
+      </p>
 
       {state === 'error' && error && (
         <div className="rounded-2xl border border-red-300 bg-red-50 p-4" role="alert">

@@ -5,10 +5,11 @@ import App from './App'
 import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
-// If user opens "/login" directly, HashRouter won't see it.
+// If user opens "/login" or "/register" directly, HashRouter won't see it.
 // Normalize to the hash-based route to avoid blank screens / redirect loops.
-if (window.location.pathname === '/login' && !window.location.hash) {
-  window.location.replace('/#/login')
+const path = window.location.pathname
+if ((path === '/login' || path === '/register') && !window.location.hash) {
+  window.location.replace(`/#${path}`)
 }
 
 createRoot(document.getElementById('root')!).render(

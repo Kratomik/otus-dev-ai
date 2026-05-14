@@ -2,6 +2,7 @@
 #   Start:              docker compose up -d
 #   Stop:               docker compose down
 #   Dev mode:           docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml up -d
+#   (dev-файл: studio из исходников, свои volume для db/storage; почта Inbucket уже в основном compose)
 #   Reset everything:  ./reset.sh
 #
 # TODO:
@@ -120,6 +121,15 @@ services:
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     entrypoint: /home/kong/kong-entrypoint.sh
 
+  # Локальный SMTP + веб-просмотр писем (http://127.0.0.1:9000). Имя контейнера = SMTP_HOST в .env (supabase-mail).
+  mail:
+    container_name: supabase-mail
+    image: inbucket/inbucket:3.0.3
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:2500:2500'
+      - '127.0.0.1:9000:9000'
+
   auth:
     container_name: supabase-auth
     image: supabase/gotrue:v2.186.0
@@ -141,6 +151,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      mail:
+        condition: service_started
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
@@ -167,7 +179,8 @@ services:
 
       GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP}
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${ENABLE_ANONYMOUS_USERS}
-      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      # По умолчанию true, если переменная не задана (иначе GoTrue шлёт письмо без рабочего SMTP).
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-true}
 
       # Uncomment to bypass nonce check in ID Token flow. Commonly set to true when using Google Sign In on mobile.
       # GOTRUE_EXTERNAL_SKIP_NONCE_CHECK: "true"

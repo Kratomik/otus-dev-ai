@@ -1,70 +1,71 @@
-# 📚 Backend Documentation — EcoTrack v1.0
+# Backend documentation — EcoTrack v1.0
 
 > Версия: 1.0  
-> Дата: Май 2026  
-> Автор: [Ваше Имя]  
-> Инфраструктура: Supabase (BaaS) + Vite Frontend
+> Дата: май 2026  
+> Инфраструктура: **Supabase self-hosted** (PostgreSQL, Auth, PostgREST, Kong) в Docker Compose + Vite/React frontend
+
+**Канонический сценарий развёртывания** — вариант **B (локально / self-hosted)**: установка Docker, создание `backend/.env`, `docker compose up`, SQL-миграция, `frontend/.env.local`, запуск и проверка. Всё пошагово описано в корневом **[`Readme.md`](../Readme.md)**; этот файл дополняет его справочником по **HTTP/API** и архитектуре.
 
 ---
 
-## 🏗 Архитектура решения
+## Архитектура решения
 
-### Общая схема
+### Общая схема (вариант B)
 
-┌─────────────────┐     ┌─────────────────────┐     ┌─────────────────┐
-│   Frontend      │     │   Supabase Cloud    │     │   External      │
-│   (Vite+React)  │────▶│   • PostgreSQL 15   │────▶│   Services      │
-│   • TS Strict   │     │   • Auth (JWT)      │     │   • IPCC API    │
-│   • Tailwind    │◀────│   • Realtime        │     │   • Geocoding   │
-│   • RTL Tests   │     │   • Storage         │     │                 │
-└─────────────────┘     │   • Row Level Sec   │     └─────────────────┘
-                        │   • Auto REST API   │
-                        └─────────────────────┘
-
-
-### Компоненты
-| Компонент | Технология | Назначение |
-|-----------|-----------|------------|
-| **Database** | PostgreSQL 15 | Хранение пользователей, расчётов, прогресса |
-| **Auth** | Supabase Auth (GoTrue) | Регистрация, вход, JWT-сессии, email-верификация |
-| **API Layer** | Supabase Auto-REST | Автоматическая генерация CRUD endpoints из схемы БД |
-| **Security** | Row Level Security (RLS) | Изоляция данных пользователей на уровне БД |
-| **Client** | @supabase/supabase-js v2 | Типизированный клиент для React-хуков |
-| **Logging** | Supabase Dashboard Logs | Мониторинг запросов, ошибок, аутентификации |
-
-### Почему Supabase (а не self-hosted)?
-✅ **Скорость разработки**: готовая БД + Auth + API из коробки  
-✅ **Безопасность**: RLS предотвращает утечки данных даже при ошибке в коде  
-✅ **Масштабируемость**: автоматическое масштабирование, бэкапы, CDN  
-✅ **Бесплатный tier**: 500MB БД, 50k MAU, 2GB bandwidth — достаточно для MVP  
-✅ **Интеграция с AI**: чёткая схема БД позволяет генерировать код через промпты  
-
----
-
-## 🚀 Инструкции по развёртыванию
-
-### Предварительные требования
-- Аккаунт на [ttps://localhost:8000](https://localhost:8000)
-- Node.js 20 LTS, npm 10+
-- Доступ к репозиторию `otus-dev-ai`
-
-### Шаг 1: Создание проекта Supabase
-1. Перейдите в [Dashboard](https://localhost:8000) → `New Project`
-2. Использовал дефолтный проект
-
-### Шаг 2: Применение миграции БД
-1. В проекте откройте **SQL Editor** → `New query`
-2. Вставьте содержимое файла `supabase_migration.sql` из репозитория
-3. Нажмите `Run` (убедитесь, что выполнено 5 блоков: таблицы + RLS + seed-данные)
-
-### Шаг 3: Настройка переменных окружения
-1. В корне проекта создайте `.env.local`:
-```bash
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+┌─────────────────┐     ┌──────────────────────────────────────────────┐
+│   Frontend      │     │  Supabase self-hosted (backend/docker-compose) │
+│   Vite + React  │────▶│  Kong :8000 → Auth, PostgREST, Realtime, …     │
+│   supabase-js   │◀────│  PostgreSQL 15                                 │
+└─────────────────┘     └──────────────────────────────────────────────┘
 ```
 
-**Демонстрация работы приложения интегрированного с supabase**
+Браузер обращается к **`VITE_SUPABASE_URL`** (обычно `http://localhost:8000` — это Kong). Отдельного сервера приложений на Node/Express в репозитории нет: данные и Auth идут через официальный стек Supabase.
+
+### Компоненты
+
+| Компонент | Технология | Назначение |
+|-----------|------------|------------|
+| **Шлюз** | Kong | Единая точка входа, маршрутизация к сервисам |
+| **Database** | PostgreSQL | Пользователи (Auth), профили, расчёты, прогресс, рекомендации, логи ошибок |
+| **Auth** | GoTrue (Supabase Auth) | Регистрация, вход, JWT |
+| **API к таблицам** | PostgREST | REST поверх PostgreSQL (`/rest/v1`) |
+| **Security** | Row Level Security (RLS) | Изоляция данных на уровне БД |
+| **Client** | `@supabase/supabase-js` v2 | Клиент в React |
+| **Клиентские ошибки** | Таблица `client_errors` + `logClientError.ts` | Запись ошибок UI в БД (см. ниже) |
+
+### Зачем self-hosted в этом репозитории
+
+- **Воспроизводимость**: один и тот же Compose и SQL-миграции на любой машине с Docker.  
+- **Локальная разработка без облака**: не нужен проект на supabase.co для MVP.  
+- **Полный контроль над БД и политиками RLS** в своей среде.
+
+### RLS на таблицах приложения
+
+В **`backend/supabase_migration.sql`** для всех пяти таблиц в `public`, к которым ходит PostgREST, включён **`ENABLE ROW LEVEL SECURITY`**: `profiles`, `calculations`, `user_progress`, `recommendations`, `client_errors`. Без включённого RLS политики не действуют (типичная ошибка старых фрагментов SQL: `CREATE POLICY` на `recommendations` без `ALTER TABLE … ENABLE ROW LEVEL SECURITY`, или отсутствие RLS на `profiles`). Для уже существующей БД выполните **`backend/supabase_security_patch.sql`** (идемпотентно выравнивает RLS, политики и GRANT).
+
+---
+
+## Развёртывание и окружение
+
+Полная инструкция (Docker, `cp .env.example .env`, `utils/generate-keys.sh`, `docker compose up -d`, применение `supabase_migration.sql`, опционально `supabase_security_patch.sql`, frontend `frontend/.env.local`, проверка регистрации и данных) — в **[`Readme.md`](../Readme.md)**.
+
+Кратко, чтобы не дублировать текст:
+
+| Шаг | Где в репозитории |
+|-----|-------------------|
+| Compose и переменные | `backend/docker-compose.yml`, `backend/.env.example` → локальный `backend/.env` |
+| Секреты для первого запуска | `sh utils/generate-keys.sh --update-env` из каталога `backend/` |
+| Схема приложения | `backend/supabase_migration.sql` (Studio → SQL Editor на `http://localhost:8000`, Basic Auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` из `.env`) |
+| Ключ для фронта | значение **`ANON_KEY`** из `backend/.env` → **`VITE_SUPABASE_ANON_KEY`** в `frontend/.env.local` |
+
+Переменные фронта не хранятся в `backend/`; шаблон — **`frontend/.env.example`**.
+
+---
+
+## Скриншоты (пример локальной работы)
+
+Иллюстрации лежат в `backend/screen/` (ошибки авторизации, вход, сохранение данных, Studio, записи в БД).
 
 <img src="screen/Ошибка авторизации.png" width="" height="500"/>
 
@@ -76,20 +77,21 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 <img src="screen/Данный в БД.png" width="" height="500"/>
 
+---
 
-**Описание API**
+## Описание API
 
-Документ описывает API-запросы, которые реально используются в текущем проекте.
+Ниже — запросы, которые реально используются в проекте (через Supabase JS → HTTP).
 
 ## Базовая информация
 
 - **Тип API:** Supabase (Auth + PostgREST), self-hosted через `backend/docker-compose.yml`
 - **Базовый URL API:** `VITE_SUPABASE_URL` (frontend), обычно `http://localhost:8000`
-- **Ключ клиента:** `VITE_SUPABASE_ANON_KEY`
+- **Ключ клиента:** `VITE_SUPABASE_ANON_KEY` (должен совпадать с **`ANON_KEY`** в `backend/.env`)
 - **Основные префиксы endpoint:**
-  - `.../auth/v1/*` - авторизация
-  - `.../rest/v1/*` - доступ к таблицам PostgreSQL
-  - `.../realtime/v1/*` - realtime/websocket (косвенно через SDK)
+  - `.../auth/v1/*` — авторизация
+  - `.../rest/v1/*` — доступ к таблицам PostgreSQL
+  - `.../realtime/v1/*` — realtime (при использовании через SDK)
 
 ## Авторизация (Supabase Auth)
 
@@ -239,4 +241,4 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ## Что важно по проекту
 
 - В репозитории **нет** отдельного самописного backend API на Express/FastAPI с маршрутами вида `/api/...`.
-- `backend` в этом проекте - это инфраструктура self-hosted Supabase (Docker Compose), а прикладные запросы идут напрямую из frontend в Supabase API.
+- Каталог **`backend/`** — это инфраструктура self-hosted Supabase (Docker Compose) и SQL-артефакты; прикладной трафик идёт из frontend напрямую в Supabase API за Kong.

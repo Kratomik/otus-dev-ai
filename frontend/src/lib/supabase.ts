@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
+import { getAuthApiUserMessage } from './authMessages'
 
 export type Json =
   | string
@@ -159,7 +160,12 @@ function createMissingConfigClient(): SupabaseClient<Database> {
 }
 
 export const supabase: SupabaseClient<Database> = isConfigured()
-  ? createClient<Database>(SUPABASE_URL as string, SUPABASE_ANON_KEY as string)
+  ? createClient<Database>(SUPABASE_URL as string, SUPABASE_ANON_KEY as string, {
+      auth: {
+        // Сессия только в памяти вкладки: после полного обновления страницы нужен повторный вход.
+        persistSession: false,
+      },
+    })
   : createMissingConfigClient()
 
 export type SupabaseHelperErrorCode =
@@ -215,7 +221,12 @@ export async function signUp(email: string, password: string): Promise<SupabaseR
 
   try {
     const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) return { data: null, error: new SupabaseHelperError('AUTH', error.message, error) }
+    if (error) {
+      void import('./logClientError').then(({ logAuthApiError }) => {
+        logAuthApiError(error, 'auth.signUp')
+      })
+      return { data: null, error: new SupabaseHelperError('AUTH', getAuthApiUserMessage(error), error) }
+    }
     return { data: { user: data.user }, error: null }
   } catch (err: unknown) {
     return { data: null, error: toHelperError(err) }
@@ -229,7 +240,12 @@ export async function signIn(email: string, password: string): Promise<SupabaseR
 
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { data: null, error: new SupabaseHelperError('AUTH', error.message, error) }
+    if (error) {
+      void import('./logClientError').then(({ logAuthApiError }) => {
+        logAuthApiError(error, 'auth.signIn')
+      })
+      return { data: null, error: new SupabaseHelperError('AUTH', getAuthApiUserMessage(error), error) }
+    }
     return { data: { user: data.user }, error: null }
   } catch (err: unknown) {
     return { data: null, error: toHelperError(err) }
@@ -240,7 +256,12 @@ export async function signOut(): Promise<SupabaseResult<null>> {
   if (!isConfigured()) return { data: null, error: configMissingError() }
   try {
     const { error } = await supabase.auth.signOut()
-    if (error) return { data: null, error: new SupabaseHelperError('AUTH', error.message, error) }
+    if (error) {
+      void import('./logClientError').then(({ logAuthApiError }) => {
+        logAuthApiError(error, 'auth.signOut')
+      })
+      return { data: null, error: new SupabaseHelperError('AUTH', getAuthApiUserMessage(error), error) }
+    }
     return { data: null, error: null }
   } catch (err: unknown) {
     return { data: null, error: toHelperError(err) }
@@ -251,7 +272,12 @@ export async function getCurrentUser(): Promise<SupabaseResult<{ user: User | nu
   if (!isConfigured()) return { data: null, error: configMissingError() }
   try {
     const { data, error } = await supabase.auth.getUser()
-    if (error) return { data: null, error: new SupabaseHelperError('AUTH', error.message, error) }
+    if (error) {
+      void import('./logClientError').then(({ logAuthApiError }) => {
+        logAuthApiError(error, 'auth.getUser')
+      })
+      return { data: null, error: new SupabaseHelperError('AUTH', getAuthApiUserMessage(error), error) }
+    }
     return { data: { user: data.user }, error: null }
   } catch (err: unknown) {
     return { data: null, error: toHelperError(err) }

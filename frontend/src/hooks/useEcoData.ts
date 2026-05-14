@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase, type Database } from '../lib/supabase'
+import { interpretCaughtRequestError, interpretPostgrestError } from '../lib/apiHttpErrors'
 
 type ViewState = 'idle' | 'loading' | 'error' | 'success'
 
@@ -16,25 +17,20 @@ function redirectToLogin(): void {
   window.location.assign('/#/login')
 }
 
-function getSupabaseStatus(error: PostgrestError | null): number | null {
-  if (!error) return null
-  // PostgrestError may include HTTP status as a number in newer clients.
-  const maybe = (error as unknown as { status?: unknown }).status
-  return typeof maybe === 'number' ? maybe : null
-}
-
-function isUnauthorized(error: PostgrestError | null): boolean {
-  const status = getSupabaseStatus(error)
-  return status === 401
-}
-
-function normalizeErrorMessage(error: PostgrestError | Error | unknown): string {
-  if (error instanceof Error) return error.message || 'Unexpected error.'
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    const msg = (error as { message?: unknown }).message
-    return typeof msg === 'string' && msg.trim() ? msg : 'Unexpected error.'
+function handleQueryError(
+  error: PostgrestError | null,
+  context: string,
+  onRedirect: () => void,
+  onFail: (message: string) => void,
+): boolean {
+  const outcome = interpretPostgrestError(error, context)
+  if (outcome.kind === 'ok') return false
+  if (outcome.kind === 'redirect-login') {
+    onRedirect()
+    return true
   }
-  return 'Unexpected error.'
+  onFail(outcome.message)
+  return true
 }
 
 function readLastCalculationDraft(): CalculationRow | null {
@@ -116,19 +112,12 @@ export function useCalculations(): UseCalculationsResult {
         .order('created_at', { ascending: false })
         .limit(50)
 
-      if (isUnauthorized(queryError)) {
-        redirectToLogin()
-        return
-      }
-      if (queryError) {
-        setFailure(queryError.message)
-        return
-      }
+      if (handleQueryError(queryError, 'calculations.reload', redirectToLogin, setFailure)) return
 
       setItems(data ?? [])
       setSuccess()
     } catch (err: unknown) {
-      setFailure(normalizeErrorMessage(err))
+      setFailure(interpretCaughtRequestError(err, 'calculations.reload.catch'))
     }
   }, [setFailure, setLoading, setSuccess])
 
@@ -166,14 +155,15 @@ export function useCalculations(): UseCalculationsResult {
         .select('*')
         .single()
 
-      if (isUnauthorized(insertError)) {
-        redirectToLogin()
-        setSaving(false)
-        return null
-      }
-      if (insertError) {
-        setFailure(insertError.message)
-        setSaving(false)
+      if (
+        handleQueryError(insertError, 'calculations.insert', () => {
+          redirectToLogin()
+          setSaving(false)
+        }, (m) => {
+          setFailure(m)
+          setSaving(false)
+        })
+      ) {
         return null
       }
 
@@ -186,7 +176,7 @@ export function useCalculations(): UseCalculationsResult {
       setSaving(false)
       return data ?? null
     } catch (err: unknown) {
-      setFailure(normalizeErrorMessage(err))
+      setFailure(interpretCaughtRequestError(err, 'calculations.insert.catch'))
       setSaving(false)
       return null
     }
@@ -270,19 +260,12 @@ export function useProgress(): UseProgressResult {
         .eq('user_id', userId)
         .maybeSingle()
 
-      if (isUnauthorized(queryError)) {
-        redirectToLogin()
-        return
-      }
-      if (queryError) {
-        setFailure(queryError.message)
-        return
-      }
+      if (handleQueryError(queryError, 'user_progress.reload', redirectToLogin, setFailure)) return
 
       setData(row ?? null)
       setSuccess()
     } catch (err: unknown) {
-      setFailure(normalizeErrorMessage(err))
+      setFailure(interpretCaughtRequestError(err, 'user_progress.reload.catch'))
     }
   }, [setFailure, setLoading, setSuccess])
 
@@ -321,12 +304,7 @@ export function useProgress(): UseProgressResult {
           .select('*')
           .single()
 
-        if (isUnauthorized(upsertError)) {
-          redirectToLogin()
-          return null
-        }
-        if (upsertError) {
-          setFailure(upsertError.message)
+        if (handleQueryError(upsertError, 'user_progress.upsert', redirectToLogin, setFailure)) {
           return null
         }
 
@@ -334,7 +312,7 @@ export function useProgress(): UseProgressResult {
         setSuccess()
         return row
       } catch (err: unknown) {
-        setFailure(normalizeErrorMessage(err))
+        setFailure(interpretCaughtRequestError(err, 'user_progress.upsert.catch'))
         return null
       }
     },
@@ -404,19 +382,12 @@ export function useRecommendations(): UseRecommendationsResult {
         .order('id', { ascending: false })
         .limit(50)
 
-      if (isUnauthorized(queryError)) {
-        redirectToLogin()
-        return
-      }
-      if (queryError) {
-        setFailure(queryError.message)
-        return
-      }
+      if (handleQueryError(queryError, 'recommendations.reload', redirectToLogin, setFailure)) return
 
       setItems(data ?? [])
       setSuccess()
     } catch (err: unknown) {
-      setFailure(normalizeErrorMessage(err))
+      setFailure(interpretCaughtRequestError(err, 'recommendations.reload.catch'))
     }
   }, [setFailure, setLoading, setSuccess])
 

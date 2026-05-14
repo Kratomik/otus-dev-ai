@@ -42,15 +42,78 @@ INSERT INTO recommendations (text, co2_saving, difficulty, impact) VALUES
 ('Перейдите на LED-лампы и используйте умные розетки', '0.2 т CO₂/год', 'Средне', 6),
 ('Сократите потребление красного мяса на 50%', '0.6 т CO₂/год', 'Сложно', 10);
 
--- 5. Row Level Security (RLS)
+-- 5. Клиентские ошибки (лог из ErrorBoundary / best-effort)
+CREATE TABLE client_errors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  message TEXT,
+  stack TEXT,
+  component_stack TEXT,
+  url TEXT,
+  user_agent TEXT,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+-- 6. Row Level Security (RLS) — на всех public-таблицах приложения
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calculations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recommendations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE client_errors ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can select own profile" ON profiles
+  FOR SELECT TO authenticated
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own profile" ON profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" ON profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
 
 CREATE POLICY "Users can CRUD own calculations" ON calculations
-  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can read/update own progress" ON user_progress
-  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Public read recommendations" ON recommendations
-  FOR SELECT USING (true);
+  FOR SELECT TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Anonymous and users can report client errors" ON client_errors
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (true);
+
+-- 7. Права для PostgREST (роли anon / authenticated)
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON calculations TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON user_progress TO anon, authenticated;
+GRANT SELECT ON recommendations TO anon, authenticated;
+GRANT INSERT ON client_errors TO anon, authenticated;
+
+-- 8. Строка в profiles при регистрации (иначе таблица остаётся пустой: фронт не делает insert)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, location)
+  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'location', 'RU'))
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
