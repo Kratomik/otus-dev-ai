@@ -14,8 +14,8 @@ describe('apiHttpErrors', () => {
   it('maps 403 to user-facing Russian message', () => {
     const err = makeError({
       message: 'Forbidden',
-      details: null,
-      hint: null,
+      details: undefined,
+      hint: undefined,
       code: '42501',
     })
     Object.assign(err, { status: 403 })
