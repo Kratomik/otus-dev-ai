@@ -39,9 +39,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm run test
-
       - name: Build project
         run: npm run build -- --base="/${{ github.event.repository.name }}/"
 
@@ -53,11 +50,35 @@ jobs:
         with:
           path: frontend/dist
 
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

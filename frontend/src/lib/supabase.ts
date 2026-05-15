@@ -147,6 +147,25 @@ function isConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
 }
 
+export type SupabaseHelperErrorCode =
+  | 'CONFIG_MISSING'
+  | 'VALIDATION'
+  | 'NETWORK'
+  | 'AUTH'
+  | 'UNKNOWN'
+
+export class SupabaseHelperError extends Error {
+  public readonly code: SupabaseHelperErrorCode
+  public readonly cause?: unknown
+
+  constructor(code: SupabaseHelperErrorCode, message: string, cause?: unknown) {
+    super(message)
+    this.name = 'SupabaseHelperError'
+    this.code = code
+    this.cause = cause
+  }
+}
+
 function createMissingConfigClient(): SupabaseClient<Database> {
   const err = new SupabaseHelperError('CONFIG_MISSING', CONFIG_MISSING_MESSAGE)
   return new Proxy(
@@ -167,25 +186,6 @@ export const supabase: SupabaseClient<Database> = isConfigured()
       },
     })
   : createMissingConfigClient()
-
-export type SupabaseHelperErrorCode =
-  | 'CONFIG_MISSING'
-  | 'VALIDATION'
-  | 'NETWORK'
-  | 'AUTH'
-  | 'UNKNOWN'
-
-export class SupabaseHelperError extends Error {
-  public readonly code: SupabaseHelperErrorCode
-  public readonly cause?: unknown
-
-  constructor(code: SupabaseHelperErrorCode, message: string, cause?: unknown) {
-    super(message)
-    this.name = 'SupabaseHelperError'
-    this.code = code
-    this.cause = cause
-  }
-}
 
 export type SupabaseResult<T> = { data: T; error: null } | { data: null; error: SupabaseHelperError }
 
