@@ -1,16 +1,17 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { setupServer } from 'msw/node'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  createDefaultSupabaseHandlers,
   SUPABASE_TEST_ANON_KEY,
   SUPABASE_TEST_ORIGIN,
   TEST_USER_ID,
   tokenPasswordPredicate,
 } from '../test/msw/supabaseApiHandlers'
+import { supabaseMswServer } from '../test/msw/supabaseMswServer'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
+
+const server = supabaseMswServer
 
 const invalidCredentialsTokenHandler = http.post(tokenPasswordPredicate, () =>
   HttpResponse.json(
@@ -22,10 +23,10 @@ const invalidCredentialsTokenHandler = http.post(tokenPasswordPredicate, () =>
   ),
 )
 
-const server = setupServer(...createDefaultSupabaseHandlers())
-
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' })
+  if (process.env.CI !== 'true') {
+    server.listen({ onUnhandledRequest: 'error' })
+  }
 })
 
 afterEach(() => {
@@ -35,7 +36,9 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  server.close()
+  if (process.env.CI !== 'true') {
+    server.close()
+  }
 })
 
 describe('Supabase HTTP API (MSW)', () => {

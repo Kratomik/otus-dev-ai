@@ -6,7 +6,10 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    setupFiles: './src/__tests__/setup.ts',
+    setupFiles: [
+      './src/__tests__/setup.ts',
+      ...(process.env.CI === 'true' ? ['./src/__tests__/setupCiMsw.ts'] : []),
+    ],
     globals: true,
     pool: 'threads',
     maxWorkers: 1,

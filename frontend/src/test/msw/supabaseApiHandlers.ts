@@ -117,7 +117,10 @@ export function createDefaultSupabaseHandlers(): HttpHandler[] {
       ({ request }) => isOrigin(request.url) && new URL(request.url).pathname === '/auth/v1/user',
       ({ request }) => {
         const auth = request.headers.get('Authorization') ?? ''
-        if (!auth.includes(TEST_ACCESS_TOKEN)) {
+        const apikey = request.headers.get('apikey') ?? ''
+        const hasSessionToken = auth.includes(TEST_ACCESS_TOKEN)
+        const hasAnonKey = apikey === SUPABASE_TEST_ANON_KEY || auth.includes(SUPABASE_TEST_ANON_KEY)
+        if (!hasSessionToken && !hasAnonKey) {
           return HttpResponse.json({ error: 'invalid_jwt' }, { status: 401, headers: jsonHeaders })
         }
         return HttpResponse.json(
@@ -197,5 +200,3 @@ export function createDefaultSupabaseHandlers(): HttpHandler[] {
     ),
   ]
 }
-
-export const supabaseDefaultHandlers = createDefaultSupabaseHandlers()
