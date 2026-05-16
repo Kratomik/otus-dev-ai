@@ -1,18 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { YaMetrikaClient } from '../hooks/useAnalytics'
 
+type ReachGoalFn = YaMetrikaClient['reachGoal']
+type HitFn = YaMetrikaClient['hit']
+type SetParamsFn = YaMetrikaClient['setParams']
+
 /** Мок счётчика Метрики для unit-тестов (аналог yaCounter). */
-export function createMockYaMetrika(counterId: number): YaMetrikaClient & {
-  readonly reachGoal: ReturnType<typeof vi.fn>
-  readonly hit: ReturnType<typeof vi.fn>
-  readonly setParams: ReturnType<typeof vi.fn>
-} {
+export interface MockYaMetrikaClient {
+  readonly counterId: number
+  readonly reachGoal: ReturnType<typeof vi.fn<ReachGoalFn>>
+  readonly hit: ReturnType<typeof vi.fn<HitFn>>
+  readonly setParams: ReturnType<typeof vi.fn<SetParamsFn>>
+}
+
+export function createMockYaMetrika(counterId: number): MockYaMetrikaClient {
   return {
     counterId,
-    reachGoal: vi.fn(),
-    hit: vi.fn(),
-    setParams: vi.fn(),
+    reachGoal: vi.fn<ReachGoalFn>(),
+    hit: vi.fn<HitFn>(),
+    setParams: vi.fn<SetParamsFn>(),
   }
+}
+
+function assignYaMetrika(mock: MockYaMetrikaClient): YaMetrikaClient {
+  return mock
 }
 
 describe('analytics', () => {
@@ -78,7 +89,7 @@ describe('analytics', () => {
   describe('trackEvent', () => {
     it('calls yaCounter.reachGoal with event name and params', () => {
       const yaCounter = createMockYaMetrika(109250000)
-      window.YaMetrika = yaCounter
+      window.YaMetrika = assignYaMetrika(yaCounter)
 
       trackEvent('calculator_calculated', {
         transport: 1,
@@ -120,7 +131,7 @@ describe('analytics', () => {
   describe('trackError and global handlers', () => {
     it('trackError sends ErrorOccurred with expected parameters', () => {
       const yaCounter = createMockYaMetrika(109250000)
-      window.YaMetrika = yaCounter
+      window.YaMetrika = assignYaMetrika(yaCounter)
 
       trackError(new Error('auth failed'), 'auth_error')
 
@@ -136,7 +147,7 @@ describe('analytics', () => {
 
     it('global onerror handler reports ErrorOccurred via reachGoal', () => {
       const yaCounter = createMockYaMetrika(109250000)
-      window.YaMetrika = yaCounter
+      window.YaMetrika = assignYaMetrika(yaCounter)
       initGlobalAnalyticsHandlers()
 
       const handler = window.onerror
@@ -155,7 +166,7 @@ describe('analytics', () => {
 
     it('global unhandledrejection handler reports ErrorOccurred', () => {
       const yaCounter = createMockYaMetrika(109250000)
-      window.YaMetrika = yaCounter
+      window.YaMetrika = assignYaMetrika(yaCounter)
       initGlobalAnalyticsHandlers()
 
       const handler = window.onunhandledrejection
