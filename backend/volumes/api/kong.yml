@@ -50,6 +50,9 @@ services:
   - name: auth-v1-open-callback
     _comment: 'Auth: /auth/v1/callback* -> http://$AUTH_UPSTREAM:9999/callback*'
     url: http://$AUTH_UPSTREAM:9999/callback
+    connect_timeout: 180000
+    read_timeout: 180000
+    write_timeout: 180000
     routes:
       - name: auth-v1-open-callback
         strip_path: true
@@ -60,6 +63,9 @@ services:
   - name: auth-v1-open-authorize
     _comment: 'Auth: /auth/v1/authorize* -> http://$AUTH_UPSTREAM:9999/authorize*'
     url: http://$AUTH_UPSTREAM:9999/authorize
+    connect_timeout: 180000
+    read_timeout: 180000
+    write_timeout: 180000
     routes:
       - name: auth-v1-open-authorize
         strip_path: true

@@ -59,7 +59,14 @@ function securityMetaPlugin(): Plugin {
 }
 
 // CSP на dev-сервер не вешаем: ломает Vite HMR (белый экран).
+const pagesBase =
+  process.env.VITE_BASE_PATH ??
+  (process.env.GITHUB_ACTIONS === 'true'
+    ? `/${process.env.GITHUB_REPOSITORY?.split('/')[1] ?? ''}/`
+    : '/')
+
 export default defineConfig({
+  base: pagesBase,
   plugins: [react(), yandexMetrikaHtmlPlugin(), securityMetaPlugin()],
   preview: { headers: SECURITY_HEADERS },
 })

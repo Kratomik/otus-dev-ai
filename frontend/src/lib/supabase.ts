@@ -9,6 +9,7 @@ import {
   type OAuthRedirectErrorParams,
   type YandexOAuthErrorKind,
 } from './yandexOAuthErrors'
+import { getBrowserAuthStorage } from './authStorage'
 
 export type Json =
   | string
@@ -248,12 +249,15 @@ function createMissingConfigClient(): SupabaseClient<Database> {
   } as unknown as SupabaseClient<Database>
 }
 
+const browserAuthStorage = getBrowserAuthStorage()
+
 export const supabase: SupabaseClient<Database> = isConfigured()
   ? createClient<Database>(SUPABASE_URL as string, SUPABASE_ANON_KEY as string, {
       auth: {
-        // sessionStorage: PKCE verifier переживает редирект на Яндекс; сессия только в этой вкладке.
-        persistSession: true,
-        storage: window.sessionStorage,
+        // persistSession: true нужен, чтобы Supabase принял auth.storage (иначе только RAM).
+        // createEphemeralAuthStorage: сессия в RAM, PKCE verifier в sessionStorage на редирект.
+        persistSession: Boolean(browserAuthStorage),
+        storage: browserAuthStorage,
         flowType: 'pkce',
         detectSessionInUrl: false,
       },

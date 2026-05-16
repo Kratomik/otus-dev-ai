@@ -1,5 +1,6 @@
 # Usage
-#   Start:              docker compose up -d  (или docker-compose up -d)
+#   Start:              docker compose up -d  (или ./compose.sh up -d)
+#   НЕ используйте docker-compose 1.27 — KeyError: ContainerConfig на Docker Engine 28+
 #   Stop:               docker compose down
 #   Сборка auth (Yandex): ./auth/build.sh
 #   Перезапуск auth:    ./auth/recreate-auth.sh  (НЕ docker-compose up --force-recreate auth на v1.27)
@@ -124,8 +125,8 @@ services:
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
-      # Upstream for GoTrue (see docker-compose.auth-hostnet.yml: host.docker.internal)
-      AUTH_UPSTREAM: ${AUTH_UPSTREAM:-auth}
+      # GoTrue в host network слушает на хосте :9999
+      AUTH_UPSTREAM: ${AUTH_UPSTREAM:-host.docker.internal}
     # host-gateway is unavailable on some Linux setups; 172.17.0.1 is docker0 on the host
     extra_hosts:
       - "host.docker.internal:${DOCKER_HOST_GATEWAY:-172.17.0.1}"
@@ -147,6 +148,9 @@ services:
       dockerfile: Dockerfile
     image: ecotrack-gotrue:yandex
     restart: unless-stopped
+    # Host network: исходящий HTTPS к oauth.yandex.ru без таймаута Docker bridge (504 на /callback).
+    # Postgres и SMTP — через порты на 127.0.0.1 (см. db:5433, mail:2500). Kong → host.docker.internal:9999.
+    network_mode: host
     healthcheck:
       test:
         [
@@ -172,7 +176,7 @@ services:
       API_EXTERNAL_URL: ${API_EXTERNAL_URL}
 
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@127.0.0.1:${AUTH_DB_HOST_PORT:-5433}/${POSTGRES_DB}
 
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
@@ -201,7 +205,7 @@ services:
       # GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: "true"
       # GOTRUE_SMTP_MAX_FREQUENCY: 1s
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
-      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_HOST: 127.0.0.1
       GOTRUE_SMTP_PORT: ${SMTP_PORT}
       GOTRUE_SMTP_USER: ${SMTP_USER}
       GOTRUE_SMTP_PASS: ${SMTP_PASS}
@@ -290,9 +294,6 @@ services:
       # GOTRUE_HOOK_SEND_EMAIL_ENABLED: "false"
       # GOTRUE_HOOK_SEND_EMAIL_URI: "http://host.docker.internal:54321/functions/v1/email_sender"
       # GOTRUE_HOOK_SEND_EMAIL_SECRETS: "v1,whsec_VGhpcyBpcyBhbiBleGFtcGxlIG9mIGEgc2hvcnRlciBCYXNlNjQgc3RyaW5n"
-
-    sysctls:
-      net.ipv6.conf.all.disable_ipv6: 1
 
   rest:
     container_name: supabase-rest
@@ -555,6 +556,8 @@ services:
     container_name: supabase-db
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AUTH_DB_HOST_PORT:-5433}:5432"
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # Must be superuser to create event trigger
@@ -688,6 +691,43 @@ services:
         "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
       ]
 
+  health-check:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./health:/app
+    command: ["node", "dist/server.js"]
+    environment:
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      HEALTH_WEBHOOK_URL: ${HEALTH_WEBHOOK_URL:-}
+    networks:
+      - ecotrack-network
+      - default
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3002/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   db-config:
   deno-cache:
+
+networks:
+  ecotrack-network:
+    driver: bridge

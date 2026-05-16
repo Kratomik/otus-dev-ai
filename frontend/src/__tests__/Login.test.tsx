@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Login from '../pages/Login'
+import { getYandexSignInOAuthOptions } from '../lib/authOAuth'
 
 const { signInWithOAuth } = vi.hoisted(() => ({
   signInWithOAuth: vi.fn(),
@@ -72,7 +73,7 @@ describe('Login', () => {
     await waitFor(() => {
       expect(signInWithOAuth).toHaveBeenCalledWith({
         provider: 'yandex',
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
+        options: getYandexSignInOAuthOptions(window.location.origin),
       })
     })
 

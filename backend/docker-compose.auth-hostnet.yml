@@ -1,27 +1,6 @@
-# Optional override when GoTrue cannot reach oauth.yandex.ru from the Docker bridge
-# (504 / context deadline exceeded on /auth/v1/callback).
-#
-# Usage (from backend/):
-#   AUTH_USE_HOST_NETWORK=1 ./auth/recreate-auth.sh
-#   docker compose -f docker-compose.yml -f docker-compose.auth-hostnet.yml up -d kong
-#
-# Host port 5433 maps to Postgres inside db (not Supavisor on 5432).
-# Inbucket SMTP is already on 127.0.0.1:2500.
-
+# Устарело: host network для auth включён в docker-compose.yml по умолчанию.
+# Файл оставлен для совместимости: docker compose -f docker-compose.yml -f docker-compose.auth-hostnet.yml …
 version: "3.8"
 
 services:
-  db:
-    ports:
-      - "127.0.0.1:${AUTH_DB_HOST_PORT:-5433}:5432"
-
-  auth:
-    network_mode: host
-    environment:
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@127.0.0.1:${AUTH_DB_HOST_PORT:-5433}/${POSTGRES_DB}
-      GOTRUE_SMTP_HOST: 127.0.0.1
-    sysctls: !reset {}
-
-  kong:
-    environment:
-      AUTH_UPSTREAM: host.docker.internal
+  auth: {}

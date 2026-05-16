@@ -1,17 +1,28 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   claimOAuthCodeExchange,
+  clearOAuthParamsFromUrl,
   getOAuthCodeFromLocation,
   getOAuthRedirectErrorFromLocation,
   getOAuthRedirectTo,
+  getYandexSignInOAuthOptions,
   isFlowStateNotFoundError,
   normalizeAuthCallbackLocation,
   releaseOAuthCodeExchange,
+  YANDEX_OAUTH_QUERY_PARAMS,
 } from '../lib/authOAuth'
 
 describe('authOAuth', () => {
   it('builds redirect URL without hash fragment', () => {
     expect(getOAuthRedirectTo('http://localhost:5173')).toBe('http://localhost:5173/auth/callback')
+  })
+
+  it('requests Yandex account picker via force_confirm', () => {
+    expect(YANDEX_OAUTH_QUERY_PARAMS).toEqual({ force_confirm: 'yes' })
+    expect(getYandexSignInOAuthOptions('http://localhost:5173')).toEqual({
+      redirectTo: 'http://localhost:5173/auth/callback',
+      queryParams: { force_confirm: 'yes' },
+    })
   })
 
   it('normalizes ?code= on root with hash route', () => {
@@ -81,5 +92,25 @@ describe('authOAuth', () => {
       }),
     ).toBe(true)
     expect(isFlowStateNotFoundError(new Error('other'))).toBe(false)
+  })
+
+  it('clears OAuth params from hash URL', () => {
+    let replaced = ''
+    const location = {
+      href: 'http://localhost:5173/#/auth/callback?code=used-code',
+      hash: '#/auth/callback?code=used-code',
+      search: '',
+      origin: 'http://localhost:5173',
+    } as Location
+    const history = {
+      state: null,
+      replaceState: (_state: unknown, _title: string, url: string) => {
+        replaced = url
+      },
+    }
+    vi.stubGlobal('history', history)
+    clearOAuthParamsFromUrl(location)
+    expect(replaced).toBe('http://localhost:5173/#/auth/callback')
+    vi.unstubAllGlobals()
   })
 })

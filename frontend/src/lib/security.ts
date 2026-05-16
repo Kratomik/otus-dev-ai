@@ -2,7 +2,7 @@
  * Защита от XSS, CSRF и подготовка безопасных payload для PostgREST (SQL injection).
  *
  * CSRF: API через Supabase JWT в заголовке Authorization (не cookie-сессия приложения).
- * persistSession: false — токен только в памяти вкладки.
+ * Сессия JWT только в памяти вкладки (authStorage), не в localStorage.
  */
 
 const CONTROL_AND_BIDI = /[\u0000-\u001F\u007F\u200E\u200F\u202A-\u202E]/g

@@ -2,28 +2,25 @@ import { memo, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { applyHandleApiErrorAction } from '../lib/applyApiErrorAction'
 import { getAuthApiUserMessage } from '../lib/authMessages'
+import { exchangeOAuthCodeForSession } from '../lib/authExchange'
 import {
-  claimOAuthCodeExchange,
+  clearOAuthParamsFromUrl,
   getOAuthCodeFromLocation,
   getOAuthRedirectErrorFromLocation,
   isFlowStateNotFoundError,
-  releaseOAuthCodeExchange,
+  isPkceVerifierMissingError,
 } from '../lib/authOAuth'
 import { finishAuthSession } from '../lib/finishAuthSession'
 import { handleApiError, supabase } from '../lib/supabase'
 
-const SESSION_POLL_MS = 150
-const SESSION_POLL_ATTEMPTS = 20
-
-async function waitForSession(): Promise<boolean> {
-  for (let attempt = 0; attempt < SESSION_POLL_ATTEMPTS; attempt += 1) {
-    const { data } = await supabase.auth.getSession()
-    if (data.session) return true
-    await new Promise((resolve) => {
-      setTimeout(resolve, SESSION_POLL_MS)
-    })
+function oauthFailureMessage(error: unknown): string {
+  if (isPkceVerifierMissingError(error)) {
+    return 'Сессия OAuth сброшена. Начните вход через Яндекс заново (не обновляйте страницу).'
   }
-  return false
+  if (isFlowStateNotFoundError(error)) {
+    return 'Код входа уже использован или устарел. Начните вход через Яндекс заново.'
+  }
+  return getAuthApiUserMessage(error)
 }
 
 function AuthCallback() {
@@ -33,81 +30,82 @@ function AuthCallback() {
   useEffect(() => {
     let active = true
 
+    const fail = (message: string): void => {
+      clearOAuthParamsFromUrl()
+      setError(message)
+    }
+
     const complete = async () => {
       const redirectError = getOAuthRedirectErrorFromLocation()
       if (redirectError) {
         const action = await handleApiError(redirectError, 'yandex-oauth-redirect')
         if (!active) return
-        if (applyHandleApiErrorAction(action, navigate, setError) === 'stop') return
+        const stopped = applyHandleApiErrorAction(action, navigate, setError) === 'stop'
+        if (!stopped) {
+          fail(redirectError.error_description ?? redirectError.error)
+        } else {
+          clearOAuthParamsFromUrl()
+        }
+        return
       }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      const { data: existingSession } = await supabase.auth.getSession()
       if (!active) return
-      if (sessionError) {
-        const action = await handleApiError(sessionError, 'yandex-oauth-exchange')
-        if (!active) return
-        if (applyHandleApiErrorAction(action, navigate, setError) === 'stop') {
-          if (action.type !== 'error') setError(getAuthApiUserMessage(sessionError))
-          return
-        }
-      }
-      if (sessionData.session) {
+      if (existingSession.session) {
+        clearOAuthParamsFromUrl()
         await finishAuthSession(navigate, () => active)
         return
       }
 
       const code = getOAuthCodeFromLocation()
       if (!code) {
-        setError('Не найден код авторизации. Повторите вход через Яндекс.')
+        fail('Не найден код авторизации. Начните вход через Яндекс с страницы входа.')
         return
       }
 
-      const isPrimaryExchange = claimOAuthCodeExchange(code)
-      if (!isPrimaryExchange) {
-        const hasSession = await waitForSession()
-        if (!active) return
-        if (hasSession) {
-          await finishAuthSession(navigate, () => active)
-          return
-        }
-        setError('Не удалось завершить вход. Попробуйте ещё раз через Яндекс.')
-        return
-      }
+      const { error: exchangeError, session } = await exchangeOAuthCodeForSession(code)
+      if (!active) return
 
-      try {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
-        if (!active) return
-
-        if (exchangeError) {
-          const hasSession = await waitForSession()
-          if (!active) return
-          if (hasSession) {
-            await finishAuthSession(navigate, () => active)
-            return
-          }
-
-          const action = await handleApiError(exchangeError, 'yandex-oauth-exchange')
-          if (!active) return
-          if (action.type === 'session-refreshed') {
-            await finishAuthSession(navigate, () => active)
-            return
-          }
-          if (applyHandleApiErrorAction(action, navigate, setError) === 'stop') {
-            if (action.type === 'none' && isFlowStateNotFoundError(exchangeError)) {
-              setError('Сессия входа устарела. Повторите вход через Яндекс.')
-            }
-            return
-          }
-        }
-
+      if (session) {
+        clearOAuthParamsFromUrl()
         await finishAuthSession(navigate, () => active)
-      } finally {
-        releaseOAuthCodeExchange(code)
+        return
       }
+
+      if (exchangeError) {
+        const action = await handleApiError(exchangeError, 'yandex-oauth-exchange')
+        if (!active) return
+        if (action.type === 'session-refreshed') {
+          const { data: refreshed } = await supabase.auth.getSession()
+          if (refreshed.session) {
+            clearOAuthParamsFromUrl()
+            await finishAuthSession(navigate, () => active)
+            return
+          }
+        }
+        const stopped = applyHandleApiErrorAction(action, navigate, setError) === 'stop'
+        if (!stopped) {
+          fail(oauthFailureMessage(exchangeError))
+        } else {
+          clearOAuthParamsFromUrl()
+        }
+        return
+      }
+
+      const { data: afterExchange } = await supabase.auth.getSession()
+      if (!active) return
+      if (afterExchange.session) {
+        clearOAuthParamsFromUrl()
+        await finishAuthSession(navigate, () => active)
+        return
+      }
+
+      fail('Не удалось завершить вход. Начните вход через Яндекс заново (не обновляйте эту страницу).')
     }
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active || !session) return
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active || !nextSession) return
+      clearOAuthParamsFromUrl()
       void finishAuthSession(navigate, () => active)
     })
 

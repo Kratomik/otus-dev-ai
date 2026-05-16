@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { Provider } from '@supabase/supabase-js'
 import YandexIcon from '../components/YandexIcon'
 import { getAuthApiUserMessage } from '../lib/authMessages'
-import { getOAuthRedirectTo } from '../lib/authOAuth'
+import { getYandexSignInOAuthOptions } from '../lib/authOAuth'
 import { useAnalytics } from '../hooks/useAnalytics'
 import { isSupabaseConfigured, signIn, supabase } from '../lib/supabase'
 import { useSession } from '../hooks/useSession'
@@ -48,7 +48,7 @@ function Login() {
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: YANDEX_PROVIDER,
-        options: { redirectTo: getOAuthRedirectTo() },
+        options: getYandexSignInOAuthOptions(),
       })
       if (oauthError) {
         showError(getAuthApiUserMessage(oauthError))

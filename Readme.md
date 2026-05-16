@@ -36,6 +36,14 @@ docker --version
 docker compose version
 ```
 
+Если привыкли к команде **`docker-compose`** (с дефисом) и видите **`KeyError: 'ContainerConfig'`** — один раз из `backend/`:
+
+```bash
+./setup-compose.sh
+```
+
+Скрипт ставит обёртку в `~/.local/bin/docker-compose`, которая вызывает Compose V2. Либо используйте только `docker compose` или `./compose.sh`.
+
 ---
 
 ## 2. Конфигурация backend (Supabase)
@@ -78,6 +86,7 @@ sh utils/generate-keys.sh --update-env
 
 ```bash
 docker compose up -d
+# то же: docker-compose up -d  (после ./setup-compose.sh)
 ```
 
 Дождитесь готовности сервисов (при первом запуске образы скачиваются дольше). Остановка:
@@ -144,6 +153,26 @@ npm run dev
 npm run test
 ```
 
+### GitHub Pages (production)
+
+Сборка и деплой: workflow [`.github/workflows/deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) (ветка `master`).
+
+**URL приложения** (project site, не корень `github.io`):
+
+`https://kratomik.github.io/otus-dev-ai/#/login`
+
+| Неверно | Верно |
+|---------|--------|
+| `https://kratomik.github.io/#/login` | `https://kratomik.github.io/otus-dev-ai/#/login` |
+
+В **Settings → Secrets → Actions** задайте (для работы Supabase на Pages):
+
+- `VITE_SUPABASE_URL` — публичный URL API (например `https://your-api.example.com` или туннель к Kong)
+- `VITE_SUPABASE_ANON_KEY` — `ANON_KEY` из backend
+- `VITE_YANDEX_METRIKA_ID` — опционально
+
+В **Settings → Pages** источник: **GitHub Actions**.
+
 ---
 
 ## 📊 Аналитика
@@ -198,6 +227,53 @@ npm run test
 
 ---
 
+## 📊 Мониторинг и Health Checks
+
+### Сервис мониторинга
+
+Внешний uptime-мониторинг: **[Uptime by Better Stack](https://betterstack.com/uptime)** (бесплатный тариф, интервал проверки **5 минут**). Контейнер **`health-check`** в `backend/docker-compose.yml` — Fastify-сервер `backend/health/server.ts`.
+
+| Параметр | Значение |
+|----------|----------|
+| **Health endpoint** | `GET /health` |
+| **Порт** | **3002** (`http://localhost:3002`) |
+
+**Проверяет:**
+
+- **PostgreSQL connectivity** — `SELECT 1` с таймаутом 3 с (хост `supabase-db` в Compose).
+- **API readiness** — `services.auth: "up"` в JSON; при недоступной БД — `status: "degraded"`, HTTP **503**.
+
+### Алерты
+
+В Better Stack настройте уведомления **Email** при переходах монитора **DOWN** / **UP** (URL монитора: `http://<хост>:3002/health`, критерий UP — HTTP 200 и `"status":"ok"`).
+
+Перед первым запуском health-сервера:
+
+```bash
+cd backend/health && npm install && npm run build
+```
+
+### Локальный тест
+
+Из каталога **`backend/`**:
+
+```bash
+docker-compose up -d
+curl http://localhost:3002/health
+```
+
+Ожидание: HTTP **200** и `"status":"ok"`. При остановленной БД (`docker stop supabase-db`) — **503** и `"status":"degraded"`.
+
+### Соответствие ТЗ
+
+| Требование | Реализация |
+|------------|------------|
+| Мониторинг | Better Stack Uptime + `GET /health` (порт 3002) |
+| Алерты | Email при DOWN/UP (Better Stack) |
+| Graceful degradation | `status: "degraded"`, HTTP 503; health-сервис продолжает отвечать |
+
+---
+
 ## 6. Как убедиться, что всё работает
 
 Выполняйте по порядку на чистом профиле браузера или в приватном окне.
@@ -223,7 +299,8 @@ npm run test
 | Путь | Роль |
 |------|------|
 | `backend/docker-compose.yml` | Локальный Supabase (Postgres, Auth, REST, Studio, …) |
-| `backend/.env.example` | Шаблон переменных для Compose |
+| `backend/health/` | Health-check сервер (порт 3002, `/health`, `/ready`) |
+| `backend/.env.example` | Шаблон переменных для Compose (`HEALTH_WEBHOOK_URL`, `DB_*`) |
 | `backend/supabase_migration.sql` | Основная SQL-миграция приложения |
 | `backend/supabase_profile_trigger.sql` | Триггер `profiles` + бэкфилл для уже созданных пользователей |
 | `backend/supabase_security_patch.sql` | Патч RLS/GRANT для уже существующих БД |

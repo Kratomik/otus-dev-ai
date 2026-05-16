@@ -28,7 +28,10 @@ export function getAuthApiUserMessage(error: unknown): string {
   const s = getAuthHttpStatus(error)
   if (s === 401) return 'Неверный email или пароль, либо сессия истекла. Попробуйте войти снова.'
   if (s === 403) return 'Доступ запрещён. Проверьте настройки проекта или свяжитесь с поддержкой.'
-  if (s === 500 || s === 502 || s === 503 || s === 504) {
+  if (s === 504) {
+    return 'Таймаут при входе через Яндекс. Перезапустите auth: cd backend && ./auth/recreate-auth.sh'
+  }
+  if (s === 500 || s === 502 || s === 503) {
     return 'Сервер авторизации временно недоступен. Попробуйте позже.'
   }
   if (error instanceof Error && error.message.trim()) return error.message.trim()
