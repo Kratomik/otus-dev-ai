@@ -1,4 +1,5 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useMemo, useState } from 'react'
+import { useAnalytics } from '../hooks/useAnalytics'
 import { useCalculations } from '../hooks/useEcoData'
 import { useSession } from '../hooks/useSession'
 
@@ -28,21 +29,14 @@ const initialInputs: CalculatorInputs = {
 
 function Calculator() {
   const { currentUser } = useSession()
+  const { trackEvent, trackError } = useAnalytics()
   const { saveCalculation, saving, error: saveError } = useCalculations()
   const [inputs, setInputs] = useState<CalculatorInputs>(initialInputs)
   const [state, setState] = useState<ViewState>('idle')
   const [errorMessage, setErrorMessage] = useState('')
   const [totalTons, setTotalTons] = useState(0)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
-
-  const didAttemptSaveRef = useRef(false)
-
-  useEffect(() => {
-    if (!didAttemptSaveRef.current) return
-    if (!saveError) return
-    window.alert(saveError)
-    didAttemptSaveRef.current = false
-  }, [saveError])
+  const [saveNotice, setSaveNotice] = useState<string | null>(null)
 
   const handleInputChange = (field: keyof CalculatorInputs, value: string) => {
     setInputs((prev) => ({ ...prev, [field]: value }))
@@ -67,46 +61,71 @@ function Calculator() {
       const hasInvalid = values.some((value) => Number.isNaN(value) || value < 0)
 
       if (hasInvalid) {
+        const validationError = new Error('Значения должны быть неотрицательными числами.')
+        trackError(validationError, 'calculator_validation')
         setState('error')
-        setErrorMessage('Значения должны быть неотрицательными числами.')
+        setErrorMessage(validationError.message)
         return
       }
 
       setState('loading')
       setErrorMessage('')
+      setSaveNotice(null)
 
       window.setTimeout(() => {
-        const transportCo2 = transport * 0.21
-        const foodCo2 = food * 0.18
-        const energyCo2 = energy * 0.23
-        const shoppingCo2 = shopping * 0.15
-        const total = transportCo2 + foodCo2 + energyCo2 + shoppingCo2
+        void (async () => {
+          const transportCo2 = transport * 0.21
+          const foodCo2 = food * 0.18
+          const energyCo2 = energy * 0.23
+          const shoppingCo2 = shopping * 0.15
+          const total = transportCo2 + foodCo2 + energyCo2 + shoppingCo2
 
-        setTotalTons(total)
-        setChartData([
-          { name: 'Transport', value: transportCo2 },
-          { name: 'Food', value: foodCo2 },
-          { name: 'Energy', value: energyCo2 },
-          { name: 'Shopping', value: shoppingCo2 },
-        ])
-        setState('success')
+          setTotalTons(total)
+          setChartData([
+            { name: 'Transport', value: transportCo2 },
+            { name: 'Food', value: foodCo2 },
+            { name: 'Energy', value: energyCo2 },
+            { name: 'Shopping', value: shoppingCo2 },
+          ])
+          setState('success')
 
-        if (!currentUser) {
-          window.alert('Нужно войти в аккаунт, чтобы сохранить расчёт.')
-          return
-        }
+          trackEvent('CalculatorCalculated', {
+            transport,
+            food,
+            energy,
+            shopping,
+            total_co2: total,
+          })
 
-        didAttemptSaveRef.current = true
-        void saveCalculation({
-          transport,
-          food,
-          energy,
-          shopping,
-          totalCo2: total,
-        })
+          if (!currentUser) {
+            setSaveNotice('Нужно войти в аккаунт, чтобы сохранить расчёт.')
+            return
+          }
+
+          setSaveNotice(null)
+          const saved = await saveCalculation({
+            transport,
+            food,
+            energy,
+            shopping,
+            totalCo2: total,
+          })
+          if (saved?.id) {
+            trackEvent('CalculationSaved', { calculation_id: saved.id })
+          }
+        })()
       }, 400)
     },
-    [currentUser, inputs.energy, inputs.food, inputs.shopping, inputs.transport, saveCalculation],
+    [
+      currentUser,
+      inputs.energy,
+      inputs.food,
+      inputs.shopping,
+      inputs.transport,
+      saveCalculation,
+      trackError,
+      trackEvent,
+    ],
   )
 
   const difference = totalTons - RF_AVERAGE
@@ -181,6 +200,18 @@ function Calculator() {
       {state === 'error' && (
         <div id="calculator-error" className="rounded-2xl border border-red-300 bg-red-50 p-4">
           <p className="font-medium text-red-700">{errorMessage}</p>
+        </div>
+      )}
+
+      {!!saveError && (
+        <div role="alert" className="rounded-2xl border border-red-300 bg-red-50 p-4">
+          <p className="font-medium text-red-700">{saveError}</p>
+        </div>
+      )}
+
+      {!!saveNotice && (
+        <div role="status" className="rounded-2xl border border-[#2979FF]/30 bg-[#2979FF]/10 p-4">
+          <p className="font-medium text-[#0D1B2A]">{saveNotice}</p>
         </div>
       )}
 

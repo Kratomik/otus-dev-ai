@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SUPABASE_TEST_ANON_KEY,
   SUPABASE_TEST_ORIGIN,
@@ -10,8 +10,6 @@ import {
 import { supabaseMswServer } from '../test/msw/supabaseMswServer'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
-
-const server = supabaseMswServer
 
 const invalidCredentialsTokenHandler = http.post(tokenPasswordPredicate, () =>
   HttpResponse.json(
@@ -23,22 +21,9 @@ const invalidCredentialsTokenHandler = http.post(tokenPasswordPredicate, () =>
   ),
 )
 
-beforeAll(() => {
-  if (process.env.CI !== 'true') {
-    server.listen({ onUnhandledRequest: 'error' })
-  }
-})
-
 afterEach(() => {
-  server.resetHandlers()
   vi.unstubAllEnvs()
   vi.resetModules()
-})
-
-afterAll(() => {
-  if (process.env.CI !== 'true') {
-    server.close()
-  }
 })
 
 describe('Supabase HTTP API (MSW)', () => {
@@ -56,7 +41,7 @@ describe('Supabase HTTP API (MSW)', () => {
 
   it('POST /auth/v1/token — неверный пароль → AUTH и логирование в client_errors', async () => {
     let clientErrorHits = 0
-    server.use(
+    supabaseMswServer.use(
       invalidCredentialsTokenHandler,
       http.post(
         ({ request }) =>
@@ -130,7 +115,7 @@ describe('Supabase HTTP API (MSW)', () => {
 
   it('POST /rest/v1/client_errors — logApiHttpErrorToSupabase', async () => {
     let hits = 0
-    server.use(
+    supabaseMswServer.use(
       http.post(
         ({ request }) =>
           new URL(request.url).origin === SUPABASE_TEST_ORIGIN &&

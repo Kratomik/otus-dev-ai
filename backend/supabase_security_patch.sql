@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS client_errors (
 );
 
 -- 2. Включить RLS на всех public-таблицах приложения
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calculations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_progress ENABLE ROW LEVEL SECURITY;
@@ -50,7 +52,13 @@ CREATE POLICY "Users can update own profile" ON profiles
 DROP POLICY IF EXISTS "Anonymous and users can report client errors" ON client_errors;
 CREATE POLICY "Anonymous and users can report client errors" ON client_errors
   FOR INSERT TO anon, authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    (message IS NULL OR char_length(message) <= 1000)
+    AND (stack IS NULL OR char_length(stack) <= 4000)
+    AND (component_stack IS NULL OR char_length(component_stack) <= 4000)
+    AND (url IS NULL OR char_length(url) <= 2000)
+    AND (user_agent IS NULL OR char_length(user_agent) <= 500)
+  );
 
 -- 5. Политики calculations, user_progress, recommendations
 DROP POLICY IF EXISTS "Users can CRUD own calculations" ON calculations;
@@ -71,8 +79,10 @@ CREATE POLICY "Public read recommendations" ON recommendations
 -- 6. Права PostgREST (роли anon / authenticated)
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON profiles TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON calculations TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON user_progress TO anon, authenticated;
+REVOKE ALL ON calculations FROM anon;
+REVOKE ALL ON user_progress FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON calculations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON user_progress TO authenticated;
 GRANT SELECT ON recommendations TO anon, authenticated;
 GRANT INSERT ON client_errors TO anon, authenticated;
 

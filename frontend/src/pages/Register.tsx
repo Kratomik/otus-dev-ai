@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAnalytics } from '../hooks/useAnalytics'
 import { signUp, supabase } from '../lib/supabase'
 import { useSession } from '../hooks/useSession'
 
@@ -12,6 +13,7 @@ const linkPrimary =
 
 function Register() {
   const navigate = useNavigate()
+  const { trackEvent, trackError } = useAnalytics()
   const { currentUser } = useSession()
   const [state, setState] = useState<ViewState>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +31,7 @@ function Register() {
     setError(null)
     setSuccessHint(null)
     if (password !== confirmPassword) {
+      trackError(new Error('Пароли не совпадают.'), 'auth_error')
       setState('error')
       setError('Пароли не совпадают.')
       return
@@ -36,10 +39,12 @@ function Register() {
     setState('loading')
     const res = await signUp(email, password)
     if (res.error) {
+      trackError(new Error(res.error.message), 'auth_error')
       setState('error')
       setError(res.error.message)
       return
     }
+    trackEvent('UserRegistered', { provider: 'email' })
     const { data: sessionData } = await supabase.auth.getSession()
     if (sessionData.session) {
       navigate('/calculator', { replace: true })

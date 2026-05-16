@@ -1,6 +1,31 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { vi } from 'vitest'
 import Calculator from '../pages/Calculator'
+
+vi.mock('../hooks/useSession', () => ({
+  useSession: () => ({
+    state: 'success',
+    loading: false,
+    success: true,
+    error: null,
+    currentUser: { id: 'test-user-id' },
+  }),
+}))
+
+vi.mock('../hooks/useEcoData', () => ({
+  useCalculations: () => ({
+    saveCalculation: vi.fn().mockResolvedValue(null),
+    saving: false,
+    error: null,
+    state: 'idle',
+    loading: false,
+    success: false,
+    items: [],
+    lastSaved: null,
+    reload: vi.fn(),
+  }),
+}))
 
 class ResizeObserverMock {
   observe() {}

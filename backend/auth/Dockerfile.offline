@@ -1,0 +1,33 @@
+# Сборка без скачивания GitHub внутри Docker (сначала: ./prepare-source.sh).
+FROM golang:1.25.5-bookworm AS build
+
+ENV GO111MODULE=on \
+    CGO_ENABLED=0 \
+    GOOS=linux
+
+ARG GOTRUE_VERSION=v2.186.0
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates make \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /go/src/github.com/supabase/auth
+COPY gotrue-src/ ./
+
+RUN RELEASE_VERSION="${GOTRUE_VERSION}-yandex" make deps build
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --uid 1000 --create-home --shell /bin/sh supabase
+
+COPY --from=build /go/src/github.com/supabase/auth/auth /usr/local/bin/auth
+COPY --from=build /go/src/github.com/supabase/auth/migrations /usr/local/etc/auth/migrations/
+RUN ln -sf /usr/local/bin/auth /usr/local/bin/gotrue
+
+ENV GOTRUE_DB_MIGRATIONS_PATH=/usr/local/etc/auth/migrations
+
+USER supabase
+CMD ["auth"]

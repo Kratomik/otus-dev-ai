@@ -1,8 +1,15 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
 import { supabaseMswServer } from '../test/msw/supabaseMswServer'
 
+type MswGlobal = typeof globalThis & { __ecotrackMswListening?: boolean }
+
+const globalState = globalThis as MswGlobal
+
 beforeAll(() => {
-  supabaseMswServer.listen({ onUnhandledRequest: 'error' })
+  if (!globalState.__ecotrackMswListening) {
+    supabaseMswServer.listen({ onUnhandledRequest: 'error' })
+    globalState.__ecotrackMswListening = true
+  }
 })
 
 afterEach(() => {
@@ -10,5 +17,8 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  supabaseMswServer.close()
+  if (globalState.__ecotrackMswListening) {
+    supabaseMswServer.close()
+    globalState.__ecotrackMswListening = false
+  }
 })

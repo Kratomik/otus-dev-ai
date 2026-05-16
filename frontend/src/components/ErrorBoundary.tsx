@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { trackCapturedError } from '../lib/errorTracking'
 import { logClientErrorToSupabase } from '../lib/logClientError'
+import { sanitizeDisplayText } from '../lib/security'
 
 export interface ErrorBoundaryProps {
   readonly children: ReactNode
@@ -14,14 +16,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   public state: ErrorBoundaryState = { hasError: false, errorMessage: '' }
 
   public static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return { hasError: true, errorMessage: message }
+    const raw = error instanceof Error ? error.message : 'Unknown error'
+    return { hasError: true, errorMessage: sanitizeDisplayText(raw, 500) }
   }
 
   public componentDidCatch(error: unknown, info: ErrorInfo): void {
     // Always log locally for dev visibility.
     // eslint-disable-next-line no-console
     console.error('Render error caught by ErrorBoundary', error, info)
+
+    trackCapturedError(error, {
+      source: 'react_error_boundary',
+      componentStack: info.componentStack ?? undefined,
+    })
 
     void logClientErrorToSupabase({
       error,

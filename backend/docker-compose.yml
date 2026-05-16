@@ -1,6 +1,11 @@
 # Usage
-#   Start:              docker compose up -d
+#   Start:              docker compose up -d  (или docker-compose up -d)
 #   Stop:               docker compose down
+#   Сборка auth (Yandex): ./auth/build.sh
+#   Перезапуск auth:    ./auth/recreate-auth.sh  (НЕ docker-compose up --force-recreate auth на v1.27)
+#   Yandex 504 из Docker: AUTH_USE_HOST_NETWORK=1 ./auth/recreate-auth.sh && docker compose up -d kong
+#   Починка стека:      ./auth/repair-stack.sh
+#   Логи auth:          docker-compose logs -f auth | grep -i yandex
 #   Dev mode:           docker compose -f docker-compose.yml -f ./dev/docker-compose.dev.yml up -d
 #   (dev-файл: studio из исходников, свои volume для db/storage; почта Inbucket уже в основном compose)
 #   Reset everything:  ./reset.sh
@@ -9,7 +14,7 @@
 #   - Podman does not support nested variable interpolation (${A:-${B}})
 #
 
-name: supabase
+version: "3.8"
 
 services:
 
@@ -119,6 +124,11 @@ services:
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # Upstream for GoTrue (see docker-compose.auth-hostnet.yml: host.docker.internal)
+      AUTH_UPSTREAM: ${AUTH_UPSTREAM:-auth}
+    # host-gateway is unavailable on some Linux setups; 172.17.0.1 is docker0 on the host
+    extra_hosts:
+      - "host.docker.internal:${DOCKER_HOST_GATEWAY:-172.17.0.1}"
     entrypoint: /home/kong/kong-entrypoint.sh
 
   # Локальный SMTP + веб-просмотр писем (http://127.0.0.1:9000). Имя контейнера = SMTP_HOST в .env (supabase-mail).
@@ -132,7 +142,10 @@ services:
 
   auth:
     container_name: supabase-auth
-    image: supabase/gotrue:v2.186.0
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    image: ecotrack-gotrue:yandex
     restart: unless-stopped
     healthcheck:
       test:
@@ -217,6 +230,15 @@ services:
       # GOTRUE_EXTERNAL_AZURE_SECRET: ${AZURE_SECRET}
       # GOTRUE_EXTERNAL_AZURE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
 
+      GOTRUE_EXTERNAL_YANDEX_ENABLED: "true"
+      GOTRUE_EXTERNAL_YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID}
+      GOTRUE_EXTERNAL_YANDEX_SECRET: ${YANDEX_CLIENT_SECRET}
+      GOTRUE_EXTERNAL_YANDEX_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+      # OAuth token/userinfo calls to oauth.yandex.ru; default upstream timeout is 10s
+      GOTRUE_INTERNAL_HTTP_TIMEOUT: ${GOTRUE_INTERNAL_HTTP_TIMEOUT:-60s}
+      # Docker bridge often has no working IPv6 route; Go happy-eyeballs can burn the full timeout
+      GODEBUG: ${GODEBUG:-ipv6disable=1}
+
       # Uncomment to configure SMS delivery (phone auth and phone MFA).
       # GOTRUE_SMS_PROVIDER: ${SMS_PROVIDER}
       # GOTRUE_SMS_OTP_EXP: ${SMS_OTP_EXP}
@@ -268,6 +290,9 @@ services:
       # GOTRUE_HOOK_SEND_EMAIL_ENABLED: "false"
       # GOTRUE_HOOK_SEND_EMAIL_URI: "http://host.docker.internal:54321/functions/v1/email_sender"
       # GOTRUE_HOOK_SEND_EMAIL_SECRETS: "v1,whsec_VGhpcyBpcyBhbiBleGFtcGxlIG9mIGEgc2hvcnRlciBCYXNlNjQgc3RyaW5n"
+
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
 
   rest:
     container_name: supabase-rest

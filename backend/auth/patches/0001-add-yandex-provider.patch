@@ -1,0 +1,42 @@
+--- a/internal/conf/configuration.go
++++ b/internal/conf/configuration.go
+@@ -440,6 +440,7 @@ type ProviderConfiguration struct {
+ 	Phone                   PhoneProviderConfiguration     `json:"phone"`
+ 	X                       OAuthProviderConfiguration     `json:"x" envconfig:"X"`
+ 	Zoom                    OAuthProviderConfiguration     `json:"zoom"`
++	Yandex                  OAuthProviderConfiguration     `json:"yandex"`
+ 	IosBundleId             string                         `json:"ios_bundle_id" split_words:"true"`
+ 	RedirectURL             string                         `json:"redirect_url"`
+ 	AllowedIdTokenIssuers   []string                       `json:"allowed_id_token_issuers" split_words:"true"`
+--- a/internal/api/external.go
++++ b/internal/api/external.go
+@@ -751,6 +751,9 @@ func (a *API) Provider(ctx context.Context, name string, scopes string) (provide
+ 	case "zoom":
+ 		pConfig = config.External.Zoom
+ 		p, err = provider.NewZoomProvider(pConfig)
++	case "yandex":
++		pConfig = config.External.Yandex
++		p, err = provider.NewYandexProvider(pConfig)
+ 	default:
+ 		return nil, pConfig, fmt.Errorf("Provider %s could not be found", name)
+ 	}
+--- a/internal/api/settings.go
++++ b/internal/api/settings.go
+@@ -28,6 +28,7 @@ type ProviderSettings struct {
+ 	Twitter        bool `json:"twitter"`
+ 	Email          bool `json:"email"`
+ 	Phone          bool `json:"phone"`
+ 	Zoom           bool `json:"zoom"`
++	Yandex         bool `json:"yandex"`
+ }
+ 
+ type Settings struct {
+@@ -70,6 +71,7 @@ func (a *API) Settings(w http.ResponseWriter, r *http.Request) error {
+ 			WorkOS:         config.External.WorkOS.Enabled,
+ 			Email:          config.External.Email.Enabled,
+ 			Phone:          config.External.Phone.Enabled,
+ 			Zoom:           config.External.Zoom.Enabled,
++			Yandex:         config.External.Yandex.Enabled,
+ 		},
+ 		DisableSignup:     config.DisableSignup,
+ 		MailerAutoconfirm: config.Mailer.Autoconfirm,

@@ -1,38 +1,43 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo } from 'react'
+import { useAnalytics } from '../hooks/useAnalytics'
 import { useRecommendations } from '../hooks/useEcoData'
+import { sanitizeDisplayText } from '../lib/security'
 
 function Recommendations() {
   const { items, loading, error, success, reload } = useRecommendations()
-  const [showCards, setShowCards] = useState(false)
-  const didAlertRef = useRef(false)
-
-  useEffect(() => {
-    if (!error) {
-      didAlertRef.current = false
-      return
-    }
-    if (didAlertRef.current) return
-    window.alert(error)
-    didAlertRef.current = true
-  }, [error])
-
-  useEffect(() => {
-    if (!success) return
-    setShowCards(false)
-    const id = window.requestAnimationFrame(() => setShowCards(true))
-    return () => window.cancelAnimationFrame(id)
-  }, [success, items.length])
+  const { trackEvent, trackError } = useAnalytics()
 
   const viewItems = useMemo(
     () =>
       items.map((item) => ({
-        id: String(item.id),
-        text: item.text,
-        co2Savings: item.co2_saving,
-        difficulty: item.difficulty ?? 'Средне',
+        id: item.id,
+        text: sanitizeDisplayText(item.text, 500),
+        co2Savings: sanitizeDisplayText(item.co2_saving, 64),
+        difficulty: sanitizeDisplayText(item.difficulty ?? 'Средне', 32),
         impact: item.impact ?? 5,
       })),
     [items],
+  )
+
+  useEffect(() => {
+    if (!success) return
+    trackEvent('RecommendationsViewed', { count: items.length })
+  }, [success, items.length, trackEvent])
+
+  useEffect(() => {
+    if (!error) return
+    trackError(new Error(error), 'recommendations_load')
+  }, [error, trackError])
+
+  const handleRecommendationClick = useCallback(
+    (recommendationId: number, difficulty: string, impact: number) => {
+      trackEvent('RecommendationClicked', {
+        recommendation_id: recommendationId,
+        difficulty,
+        impact,
+      })
+    },
+    [trackEvent],
   )
 
   return (
@@ -57,8 +62,9 @@ function Recommendations() {
       )}
 
       {!!error && (
-        <div className="space-y-3 rounded-2xl border border-red-300 bg-red-50 p-4">
+        <div role="alert" className="space-y-3 rounded-2xl border border-red-300 bg-red-50 p-4">
           <p className="font-medium text-red-700">Could not load recommendations.</p>
+          <p className="text-sm text-red-700/90">{error}</p>
           <button
             type="button"
             onClick={reload}
@@ -92,15 +98,15 @@ function Recommendations() {
           {viewItems.map((item, index) => (
             <li
               key={item.id}
-              aria-label={`Recommendation ${index + 1}: ${item.difficulty}, impact ${item.impact} out of 10`}
-              style={{ transitionDelay: `${index * 70}ms` }}
-              className={[
-                'rounded-2xl border border-[#2979FF]/20 bg-white p-4 shadow-sm',
-                'transition-all duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
-                'motion-reduce:transform-none motion-reduce:transition-none',
-                showCards ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
-              ].join(' ')}
+              style={{ animationDelay: `${index * 70}ms` }}
+              className="animate-ecotrack-card-enter rounded-2xl border border-[#2979FF]/20 bg-white p-4 opacity-0 shadow-sm"
             >
+              <button
+                type="button"
+                onClick={() => handleRecommendationClick(item.id, item.difficulty, item.impact)}
+                aria-label={`Recommendation ${index + 1}: ${item.difficulty}, impact ${item.impact} out of 10`}
+                className="min-h-[44px] w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2"
+              >
               <p className="font-semibold text-[#0D1B2A]">{item.text}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#00E676]/20 px-3 text-sm font-medium text-[#0D1B2A]">
@@ -113,6 +119,7 @@ function Recommendations() {
                   Impact: {item.impact}/10
                 </span>
               </div>
+              </button>
             </li>
           ))}
         </ul>

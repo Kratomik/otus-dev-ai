@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { getAuthHttpStatus, shouldPersistAuthHttpLog } from './authMessages'
+import { sanitizeDisplayText, sanitizeLogContext } from './security'
 
 export interface ClientErrorLogPayload {
   readonly error: unknown
@@ -10,7 +11,8 @@ function safeString(value: unknown, max = 4000): string | undefined {
   if (value == null) return undefined
   const raw = typeof value === 'string' ? value : JSON.stringify(value)
   if (!raw) return undefined
-  return raw.length > max ? `${raw.slice(0, max)}…` : raw
+  const cleaned = sanitizeDisplayText(raw, max)
+  return cleaned.length > 0 ? cleaned : undefined
 }
 
 export interface ApiHttpLogPayload {
@@ -25,7 +27,7 @@ export interface ApiHttpLogPayload {
 export async function logApiHttpErrorToSupabase(payload: ApiHttpLogPayload): Promise<void> {
   try {
     const statusLabel = payload.httpStatus != null ? String(payload.httpStatus) : 'network'
-    const summary = `[API ${statusLabel}] ${payload.context}`
+    const summary = `[API ${statusLabel}] ${sanitizeLogContext(payload.context)}`
     const stackPayload = {
       context: payload.context,
       httpStatus: payload.httpStatus,

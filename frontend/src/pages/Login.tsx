@@ -1,21 +1,66 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { signIn } from '../lib/supabase'
+import type { Provider } from '@supabase/supabase-js'
+import YandexIcon from '../components/YandexIcon'
+import { getAuthApiUserMessage } from '../lib/authMessages'
+import { getOAuthRedirectTo } from '../lib/authOAuth'
+import { useAnalytics } from '../hooks/useAnalytics'
+import { isSupabaseConfigured, signIn, supabase } from '../lib/supabase'
 import { useSession } from '../hooks/useSession'
 
 type ViewState = 'idle' | 'loading' | 'error'
 
+const YANDEX_PROVIDER = 'yandex' as unknown as Provider
+
 function Login() {
   const navigate = useNavigate()
+  const { trackEvent, trackError } = useAnalytics()
   const { currentUser } = useSession()
   const [state, setState] = useState<ViewState>('idle')
+  const [oauthLoading, setOauthLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
+  const showError = useCallback(
+    (message: string) => {
+      trackError(new Error(message), 'auth_error')
+      setState('error')
+      setError(message)
+    },
+    [trackError],
+  )
+
   useEffect(() => {
     if (currentUser) navigate('/calculator', { replace: true })
   }, [currentUser, navigate])
+
+  const onYandexSignIn = async () => {
+    if (!isSupabaseConfigured()) {
+      showError('Supabase не настроен. Проверьте VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY.')
+      return
+    }
+
+    setOauthLoading(true)
+    setError(null)
+    setState('idle')
+
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: YANDEX_PROVIDER,
+        options: { redirectTo: getOAuthRedirectTo() },
+      })
+      if (oauthError) {
+        showError(getAuthApiUserMessage(oauthError))
+        setOauthLoading(false)
+        return
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Не удалось начать вход через Яндекс.'
+      showError(message)
+      setOauthLoading(false)
+    }
+  }
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -24,10 +69,12 @@ function Login() {
 
     const res = await signIn(email, password)
     if (res.error) {
+      trackError(new Error(res.error.message), 'auth_error')
       setState('error')
       setError(res.error.message)
       return
     }
+    trackEvent('UserLoggedIn', { provider: 'email' })
     navigate('/calculator', { replace: true })
   }
 
@@ -37,6 +84,17 @@ function Login() {
         <h2 className="text-2xl font-bold">Вход</h2>
         <p className="mt-1 text-sm text-[#0D1B2A]/75">Войдите, чтобы синхронизировать данные между устройствами.</p>
       </header>
+
+      <button
+        type="button"
+        onClick={() => void onYandexSignIn()}
+        disabled={oauthLoading || state === 'loading'}
+        aria-label="Войти через Яндекс"
+        className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 font-semibold text-[#0D1B2A] transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2 motion-reduce:transition-none disabled:opacity-70"
+      >
+        <YandexIcon />
+        {oauthLoading ? 'Переход к Яндексу…' : 'Войти через Яндекс'}
+      </button>
 
       <form
         noValidate
@@ -75,7 +133,7 @@ function Login() {
 
         <button
           type="submit"
-          disabled={state === 'loading'}
+          disabled={state === 'loading' || oauthLoading}
           className="min-h-[44px] w-full rounded-xl bg-[#2979FF] px-4 py-2 font-semibold text-white transition-colors hover:bg-[#1E67E6] focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2 motion-reduce:transition-none disabled:opacity-70"
         >
           {state === 'loading' ? 'Вход…' : 'Войти'}
@@ -102,4 +160,3 @@ function Login() {
 }
 
 export default memo(Login)
-

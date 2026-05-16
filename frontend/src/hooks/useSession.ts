@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { isSupabaseConfigured, refreshSessionIfExpired, supabase } from '../lib/supabase'
 
 type ViewState = 'loading' | 'error' | 'success'
 
@@ -18,10 +18,18 @@ export function useSession(): UseSessionResult {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setState('success')
+      setCurrentUser(null)
+      setError(null)
+      return
+    }
+
     let active = true
 
     const load = async () => {
       try {
+        await refreshSessionIfExpired()
         const { data, error } = await supabase.auth.getUser()
         if (!active) return
         if (error) {

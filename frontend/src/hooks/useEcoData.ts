@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase, type Database } from '../lib/supabase'
 import { interpretCaughtRequestError, interpretPostgrestError } from '../lib/apiHttpErrors'
+import { buildCalculationInsertPayload, clampLevel, clampNonNegativeInt, sanitizeBadges } from '../lib/security'
+import { parseCalculationDraft } from '../lib/validation'
 
 type ViewState = 'idle' | 'loading' | 'error' | 'success'
 
@@ -37,9 +39,7 @@ function readLastCalculationDraft(): CalculationRow | null {
   try {
     const raw = window.localStorage.getItem(LAST_CALCULATION_STORAGE_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (typeof parsed !== 'object' || parsed === null) return null
-    return parsed as CalculationRow
+    return parseCalculationDraft(raw)
   } catch {
     return null
   }
@@ -142,15 +142,19 @@ export function useCalculations(): UseCalculationsResult {
         return null
       }
 
+      const safePayload = buildCalculationInsertPayload({
+        transport,
+        food,
+        energy,
+        shopping,
+        totalCo2,
+      })
+
       const { data, error: insertError } = await supabase
         .from('calculations')
         .insert({
           user_id: userId,
-          transport: Math.round(transport),
-          food: Math.round(food),
-          energy: Math.round(energy),
-          shopping: Math.round(shopping),
-          total_co2: totalCo2.toFixed(2),
+          ...safePayload,
         })
         .select('*')
         .single()
@@ -180,7 +184,7 @@ export function useCalculations(): UseCalculationsResult {
       setSaving(false)
       return null
     }
-  }, [setFailure, setLoading, setSuccess])
+  }, [setFailure, setSuccess])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -294,9 +298,9 @@ export function useProgress(): UseProgressResult {
           .upsert(
             {
               user_id: userId,
-              xp: Math.floor(payload.xp),
-              level: payload.level,
-              badges: payload.badges ?? [],
+              xp: clampNonNegativeInt(payload.xp),
+              level: clampLevel(payload.level),
+              badges: sanitizeBadges(payload.badges),
               updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id' },

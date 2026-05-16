@@ -4,13 +4,12 @@ import { HashRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { initGlobalAnalyticsHandlers } from './hooks/useAnalytics'
+import { normalizeAuthCallbackLocation } from './lib/authOAuth'
 
-// If user opens "/login" or "/register" directly, HashRouter won't see it.
-// Normalize to the hash-based route to avoid blank screens / redirect loops.
-const path = window.location.pathname
-if ((path === '/login' || path === '/register') && !window.location.hash) {
-  window.location.replace(`/#${path}`)
-}
+// HashRouter: без hash маршруты не срабатывают; OAuth code — только в query (не в #).
+normalizeAuthCallbackLocation()
+initGlobalAnalyticsHandlers()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
