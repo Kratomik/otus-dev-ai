@@ -1,4 +1,3 @@
-
 # EcoTrack (MVP)
 
 Локальный каркас приложения: **React 18 + TypeScript + Vite** (frontend) и **Supabase** (PostgreSQL, Auth, PostgREST) как бэкенд данных.
