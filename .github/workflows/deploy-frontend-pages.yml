@@ -19,11 +19,6 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
-# Project Pages (не user site):
-#   https://<owner>.github.io/<repo>/#/login
-#   https://kratomik.github.io/otus-dev-ai/#/login
-# Неверно: https://kratomik.github.io/#/login  → 404 GitHub (другой сайт, нет /otus-dev-ai/)
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -55,17 +50,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: test
+    outputs:
+      app_url: ${{ steps.pages.outputs.app_url }}
+      login_url: ${{ steps.pages.outputs.login_url }}
+      vite_base: ${{ steps.pages.outputs.vite_base }}
+      is_user_site: ${{ steps.pages.outputs.is_user_site }}
     defaults:
       run:
         working-directory: frontend
-    env:
-      VITE_BASE_PATH: /${{ github.event.repository.name }}/
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      VITE_YANDEX_METRIKA_ID: ${{ secrets.VITE_YANDEX_METRIKA_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Resolve GitHub Pages base path
+        id: pages
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          if [ "$REPO" = "${OWNER}.github.io" ]; then
+            echo "vite_base=/" >> "$GITHUB_OUTPUT"
+            echo "is_user_site=true" >> "$GITHUB_OUTPUT"
+            echo "app_url=https://${OWNER}.github.io" >> "$GITHUB_OUTPUT"
+            echo "login_url=https://${OWNER}.github.io/#/login" >> "$GITHUB_OUTPUT"
+          else
+            echo "vite_base=/${REPO}/" >> "$GITHUB_OUTPUT"
+            echo "is_user_site=false" >> "$GITHUB_OUTPUT"
+            echo "app_url=https://${OWNER}.github.io/${REPO}" >> "$GITHUB_OUTPUT"
+            echo "login_url=https://${OWNER}.github.io/${REPO}/#/login" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -78,19 +92,36 @@ jobs:
         run: npm ci
 
       - name: Build for GitHub Pages
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VITE_BASE_PATH: ${{ steps.pages.outputs.vite_base }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_YANDEX_METRIKA_ID: ${{ secrets.VITE_YANDEX_METRIKA_ID }}
         run: npm run build:pages
 
-      - name: Verify Pages base path in dist
+      - name: Verify dist output
+        env:
+          REPO: ${{ github.event.repository.name }}
+          VITE_BASE: ${{ steps.pages.outputs.vite_base }}
+          IS_USER_SITE: ${{ steps.pages.outputs.is_user_site }}
         run: |
-          REPO="${{ github.event.repository.name }}"
-          if ! grep -q "/${REPO}/" dist/index.html; then
-            echo "::error::index.html must reference assets under /${REPO}/ (VITE_BASE_PATH). Check VITE_BASE_PATH in workflow."
-            grep -E 'src=|href=' dist/index.html | head -20 || true
-            exit 1
-          fi
+          test -f dist/index.html
           test -f dist/404.html
           test -f dist/.nojekyll
-          echo "Base path /${REPO}/ verified in dist/"
+          if [ "$IS_USER_SITE" = "true" ]; then
+            if grep -q "/${REPO}/assets" dist/index.html 2>/dev/null; then
+              echo "::error::User site (owner.github.io) must use base /, not /${REPO}/"
+              exit 1
+            fi
+          else
+            if ! grep -q "/${REPO}/" dist/index.html; then
+              echo "::error::Project site must embed /${REPO}/ in index.html (VITE_BASE_PATH)."
+              head -30 dist/index.html
+              exit 1
+            fi
+          fi
+          echo "dist OK (base=${VITE_BASE})"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -98,40 +129,58 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: ${{ github.workspace }}/frontend/dist
 
-      - name: Deployment URL (correct vs wrong)
+      - name: Deployment URL summary
         env:
-          OWNER: ${{ github.repository_owner }}
+          APP_URL: ${{ steps.pages.outputs.app_url }}
+          LOGIN_URL: ${{ steps.pages.outputs.login_url }}
+          IS_USER_SITE: ${{ steps.pages.outputs.is_user_site }}
           REPO: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          CORRECT="https://${OWNER}.github.io/${REPO}/#/login"
           WRONG="https://${OWNER}.github.io/#/login"
           {
-            echo "## GitHub Pages — откройте приложение"
+            echo "## GitHub Pages"
             echo ""
-            echo "| | URL |"
-            echo "|---|-----|"
-            echo "| ✅ **Верно** | \`${CORRECT}\` |"
-            echo "| ❌ **404** | \`${WRONG}\` (нет \`/${REPO}/\` в пути) |"
+            echo "**Откройте приложение:** [\`${LOGIN_URL}\`](${LOGIN_URL})"
             echo ""
-            echo "Настройки репозитория: **Settings → Pages → Source: GitHub Actions**."
-            echo "Секреты: \`VITE_SUPABASE_URL\`, \`VITE_SUPABASE_ANON_KEY\`."
+            if [ "$IS_USER_SITE" != "true" ]; then
+              echo "> Репозиторий \`${REPO}\` — это **project site**. URL **обязан** содержать \`/${REPO}/\`."
+              echo "> ❌ \`${WRONG}\` — GitHub 404 (корень \`github.io\` — другой сайт)."
+              echo ""
+            fi
+            echo "| Параметр | Значение |"
+            echo "|----------|----------|"
+            echo "| \`VITE_BASE_PATH\` | \`${{ steps.pages.outputs.vite_base }}\` |"
+            echo "| Settings → Pages | Source: **GitHub Actions** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Published URL
+      - name: Published URLs
+        env:
+          LOGIN_URL: ${{ needs.build.outputs.login_url }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
-          echo "Deployed: ${{ steps.deployment.outputs.page_url }}"
-          echo "Login: ${{ steps.deployment.outputs.page_url }}#/login"
+          {
+            echo "## Deployed"
+            echo "- Actions URL: \`${PAGE_URL}\`"
+            echo "- **Login:** [\`${LOGIN_URL}\`](${LOGIN_URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed: ${PAGE_URL}"
+          echo "Open app: ${LOGIN_URL}"

@@ -3,6 +3,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import viteCompression from 'vite-plugin-compression'
 import { SECURITY_HEADERS } from './vite.security'
+import { resolveVitePagesBase } from './vite.pages-base'
 
 const YANDEX_METRIKA_SCRIPT_RE =
   /\s*<!-- Yandex\.Metrika: ID из import\.meta\.env\.VITE_YANDEX_METRIKA_ID \(см\. src\/lib\/yandexMetrikaInit\.ts\) -->\s*<script type="module" src="\/src\/lib\/yandexMetrikaInit\.ts"><\/script>/
@@ -60,11 +61,7 @@ function securityMetaPlugin(): Plugin {
 }
 
 // CSP на dev-сервер не вешаем: ломает Vite HMR (белый экран).
-const pagesBase =
-  process.env.VITE_BASE_PATH ??
-  (process.env.GITHUB_ACTIONS === 'true'
-    ? `/${process.env.GITHUB_REPOSITORY?.split('/')[1] ?? ''}/`
-    : '/')
+const pagesBase = resolveVitePagesBase()
 
 export default defineConfig({
   base: pagesBase,
