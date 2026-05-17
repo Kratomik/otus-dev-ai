@@ -40,9 +40,13 @@ export function normalizeAuthCallbackLocation(location: Location = window.locati
 
   const callbackPath = getOAuthCallbackPathname()
 
-  if (hasOAuthParams && hash !== `#/auth/callback${search}`) {
-    location.replace(buildAppLocationUrl(`#/auth/callback${search}`, origin))
-    return true
+  // GoTrue часто шлёт на SITE_URL как `/?code=` — переносим в hash-маршрут до монтирования React.
+  if (hasOAuthParams) {
+    const targetHash = `#/auth/callback${search}`
+    if (hash !== targetHash && !hash.startsWith('#/auth/callback?')) {
+      location.replace(buildAppLocationUrl(targetHash, origin))
+      return true
+    }
   }
 
   if (!hash || hash === '#') {
