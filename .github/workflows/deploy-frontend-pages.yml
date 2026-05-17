@@ -9,6 +9,15 @@ on:
       - "frontend/**"
       - ".github/workflows/deploy-frontend-pages.yml"
   workflow_dispatch:
+    inputs:
+      vite_supabase_url:
+        description: "Override VITE_SUPABASE_URL (optional; else secret/variable)"
+        required: false
+        type: string
+      vite_supabase_anon_key:
+        description: "Override VITE_SUPABASE_ANON_KEY (optional; else secret)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -50,6 +59,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: test
+    env:
+      # Repository variable or secret; workflow_dispatch can override URL
+      VITE_SUPABASE_URL: ${{ inputs.vite_supabase_url || vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ inputs.vite_supabase_anon_key || secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_YANDEX_METRIKA_ID: ${{ secrets.VITE_YANDEX_METRIKA_ID }}
     outputs:
       app_url: ${{ steps.pages.outputs.app_url }}
       login_url: ${{ steps.pages.outputs.login_url }}
@@ -91,14 +105,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate Supabase env for Pages build
+        run: node scripts/verify-supabase-build-env.mjs
+
       - name: Build for GitHub Pages
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           VITE_BASE_PATH: ${{ steps.pages.outputs.vite_base }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_YANDEX_METRIKA_ID: ${{ secrets.VITE_YANDEX_METRIKA_ID }}
         run: npm run build:pages
+
+      - name: Verify Supabase config in dist
+        run: npm run build:pages:verify
 
       - name: Verify dist output
         env:
@@ -153,7 +170,19 @@ jobs:
             echo "| Параметр | Значение |"
             echo "|----------|----------|"
             echo "| \`VITE_BASE_PATH\` | \`${{ steps.pages.outputs.vite_base }}\` |"
+            echo "| \`VITE_SUPABASE_URL\` | задан при сборке (secret/variable) |"
             echo "| Settings → Pages | Source: **GitHub Actions** |"
+            echo ""
+            echo "### Supabase на Pages"
+            echo ""
+            echo "Если на сайте «Supabase не настроен» — в **Settings → Secrets and variables → Actions** добавьте:"
+            echo ""
+            echo "| Имя | Значение |"
+            echo "|-----|----------|"
+            echo "| \`VITE_SUPABASE_ANON_KEY\` | \`ANON_KEY\` из \`backend/.env\` |"
+            echo "| \`VITE_SUPABASE_URL\` | публичный URL Kong (не \`localhost\` для чужих браузеров) |"
+            echo ""
+            echo "После сохранения secrets: **Actions → Deploy Frontend to GitHub Pages → Run workflow**."
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:

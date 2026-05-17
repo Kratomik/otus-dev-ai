@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:pages": "npm run build && node scripts/prepare-github-pages.mjs",
+    "build:pages": "node scripts/verify-supabase-build-env.mjs && npm run build && node scripts/prepare-github-pages.mjs",
+    "build:pages:verify": "node scripts/verify-pages-supabase-in-dist.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run"

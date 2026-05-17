@@ -166,11 +166,24 @@ npm run test
 |---------|--------|
 | `https://kratomik.github.io/#/login` | `https://kratomik.github.io/otus-dev-ai/#/login` |
 
-В **Settings → Secrets → Actions** задайте (для работы Supabase на Pages):
+В **Settings → Secrets and variables → Actions** задайте (значения попадают в бандл **на этапе сборки** в workflow):
 
-- `VITE_SUPABASE_URL` — публичный URL API (например `https://your-api.example.com` или туннель к Kong)
-- `VITE_SUPABASE_ANON_KEY` — `ANON_KEY` из backend
-- `VITE_YANDEX_METRIKA_ID` — опционально
+| Имя | Тип | Значение |
+|-----|-----|----------|
+| `VITE_SUPABASE_ANON_KEY` | **Secret** | `ANON_KEY` из `backend/.env` |
+| `VITE_SUPABASE_URL` | Secret или **Variable** | публичный URL Kong (`SUPABASE_PUBLIC_URL`), например `https://your-api.example.com` |
+| `VITE_YANDEX_METRIKA_ID` | Secret | опционально |
+
+Локально те же переменные — в `frontend/.env.local`:
+
+```env
+VITE_SUPABASE_URL=http://localhost:8000
+VITE_SUPABASE_ANON_KEY=<ANON_KEY из backend/.env>
+```
+
+> **Важно:** `http://localhost:8000` в secrets GitHub **не сработает** для посетителей Pages с других устройств — браузер обращается к их localhost, а не к вашему. Для демо на Pages нужен **доступный из интернета** URL (VPS, туннель ngrok/cloudflared к порту 8000 и т.п.).
+
+После добавления secrets перезапустите деплой: **Actions → Deploy Frontend to GitHub Pages → Run workflow** (или push в `master` с изменением `frontend/**`).
 
 В **Settings → Pages** источник: **GitHub Actions**.
 
