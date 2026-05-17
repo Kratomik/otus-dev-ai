@@ -1,3 +1,4 @@
+import { logWarn } from './logger'
 import { getYandexMetrikaId } from './yandexMetrika'
 
 const TAG_URL = 'https://mc.yandex.ru/metrika/tag.js'
@@ -33,12 +34,10 @@ function loadMetrikaTag(): void {
 const counterId = getYandexMetrikaId()
 
 if (counterId === null) {
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[EcoTrack] VITE_YANDEX_METRIKA_ID is not set — Yandex Metrika disabled. Restart `npm run dev` after editing .env.local.',
-    )
-  }
+  logWarn(
+    'VITE_YANDEX_METRIKA_ID is not set — Yandex Metrika disabled. Restart npm run dev after editing .env.local.',
+    'yandex_metrika',
+  )
 } else {
   loadMetrikaTag()
   window.ym?.(counterId, 'init', {

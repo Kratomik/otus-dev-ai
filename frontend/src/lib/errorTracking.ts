@@ -3,6 +3,7 @@ import {
   teardownGlobalAnalyticsHandlers,
   trackEvent,
 } from '../hooks/useAnalytics'
+import { logDebug, logInfo } from './logger'
 import { sanitizeDisplayText, sanitizeLogContext } from './security'
 
 const DEDUP_MS = 5000
@@ -116,19 +117,13 @@ export function reportTrackedError(
   const signature = buildSignature(payload)
   const now = Date.now()
   if (!shouldReport(signature, now)) {
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.info('[errorTracking] deduplicated', signature)
-    }
+    logInfo('deduplicated error report', 'errorTracking', { signature })
     return
   }
 
   trackEvent('ErrorOccurred', payload)
 
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.error('[errorTracking]', payload, error)
-  }
+  logDebug(error.message, 'errorTracking', { payload, stack: error.stack })
 }
 
 /** Унифицированный вход для Error Boundary и ручных вызовов. */

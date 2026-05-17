@@ -106,7 +106,7 @@ docker compose down
 
 ## 4. Применение SQL-миграции схемы приложения
 
-Схема таблиц, RLS и начальные данные для EcoTrack лежат в **`backend/supabase_migration.sql`**.
+Схема таблиц, RLS и начальные данные для EcoTrack лежат в **`backend/supabase_migration.sql`**. После основной миграции выполните **`backend/supabase_performance_indexes.sql`** (индексы для `calculations`, `recommendations`, `client_errors`).
 
 **Новая база (первый подъём стека):**
 
@@ -175,6 +175,361 @@ npm run test
 
 ---
 
+## Оптимизация frontend
+
+Применённые оптимизации производительности SPA (React 18 + Vite): уменьшение initial bundle, отложенная загрузка тяжёлых модулей, мемоизация ререндеров, разбиение vendor-чанков, сжатие артефактов сборки.
+
+### Анализ тяжёлых мест
+
+| Компонент / модуль | Нагрузка | Решение |
+|--------------------|----------|---------|
+| **recharts** (`EmissionsPieChart`) | Крупнейший vendor (~318 KB, gzip ~94 KB) | `React.lazy` в Calculator; отдельный chunk `recharts` |
+| **@supabase/supabase-js** | ~203 KB | Chunk `supabase`, не тянется на страницах без API |
+| **Recommendations** | Список + `sanitizeDisplayText` в `useMemo` | Lazy-route, отдельный chunk ~3.7 KB |
+| **Progress** | Форма XP, бейджи, несколько эффектов | Lazy-route + `memo(ProgressSaveForm)` |
+| **Calculator** | Стартовый маршрут после логина | Eager import (основной экран) |
+
+Списки рекомендаций небольшие — виртуализация не требуется. Узкое место — график и Supabase-клиент.
+
+### 1. Code splitting (`React.lazy` + `Suspense`)
+
+Маршруты **Recommendations** и **Progress** подгружаются только при переходе:
+
+```tsx
+// frontend/src/App.tsx
+const Recommendations = lazy(() => import('./pages/Recommendations'))
+const Progress = lazy(() => import('./pages/Progress'))
+
+<Route
+  path="recommendations"
+  element={
+    <Suspense fallback={<RoutePageFallback label="recommendations" />}>
+      <Recommendations />
+    </Suspense>
+  }
+/>
+```
+
+График в калькуляторе — отдельный чанк до успешного расчёта:
+
+```tsx
+// frontend/src/pages/Calculator.tsx
+const EmissionsPieChart = lazy(() => import('../components/EmissionsPieChart'))
+
+<Suspense fallback={<div className="h-64 …">Loading chart…</div>}>
+  <EmissionsPieChart data={chartData} />
+</Suspense>
+```
+
+**Preload по намерению** — при наведении/фокусе на пункт меню чанк начинает грузиться до клика:
+
+```tsx
+// frontend/src/components/Layout.tsx
+const preloadRecommendations = (): void => {
+  void import('../pages/Recommendations')
+}
+
+<NavLink to={to} onMouseEnter={() => preloadRoute(to)} onFocus={() => preloadRoute(to)} … />
+```
+
+Fallback: `frontend/src/components/RoutePageFallback.tsx` (доступный спиннер, `aria-busy`).
+
+### 2. `useMemo` и `useCallback`
+
+| Место | Зачем |
+|-------|--------|
+| `Recommendations` | `viewItems` — санитизация списка один раз при смене `items`; `handleRecommendationClick` — стабильный обработчик для кнопок |
+| `Progress` | `data`, `progressPercent` — производные от ответа API; `handleSaveProgress` — не ломает `memo` у формы |
+| `ProgressSaveForm` | `memo(...)` — ввод цели (`goalType`) не перерисовывает форму XP |
+| `Calculator` | `fields` для полей ввода; `handleCalculate` для submit |
+| `useAnalytics` / `useEcoData` | Стабильные ссылки на методы в зависимостях `useEffect` |
+
+Пример на странице рекомендаций:
+
+```tsx
+const viewItems = useMemo(
+  () => items.map((item) => ({
+    id: item.id,
+    text: sanitizeDisplayText(item.text, 500),
+    co2Savings: sanitizeDisplayText(item.co2_saving, 64),
+    difficulty: sanitizeDisplayText(item.difficulty ?? 'Средне', 32),
+    impact: item.impact ?? 5,
+  })),
+  [items],
+)
+
+const handleRecommendationClick = useCallback(
+  (recommendationId: number, difficulty: string, impact: number) => {
+    trackEvent('RecommendationClicked', { recommendation_id: recommendationId, difficulty, impact })
+  },
+  [trackEvent],
+)
+```
+
+### 3. Импорты библиотек
+
+| Библиотека | Практика в проекте |
+|------------|-------------------|
+| **lodash** | Не используется |
+| **recharts** | Именованные импорты: `Pie`, `PieChart`, `Cell`, `Tooltip` |
+| **lucide-react** | Только нужные иконки: `Calculator`, `Leaf`, `BarChart3` |
+| **@supabase/supabase-js** | Точечный импорт клиента из `lib/supabase.ts` |
+
+Полные импорты вида `import _ from 'lodash'` или `import * as Recharts from 'recharts'` в коде отсутствуют.
+
+### 4. Сборка Vite (`frontend/vite.config.ts`)
+
+| Настройка | Эффект |
+|-----------|--------|
+| `minify: 'terser'` + `drop_console` | Меньший prod-bundle, без `console.*` |
+| `vite-plugin-compression` (gzip + brotli) | `.gz` / `.br` для статики > 1 KB (CDN/nginx) |
+| `chunkSizeWarningLimit: 600` | Контроль крупных чанков при сборке |
+| `manualChunks` | Отдельные файлы: `react-vendor`, `router`, `supabase`, `recharts` |
+
+```ts
+build: {
+  minify: 'terser',
+  terserOptions: {
+    compress: { drop_console: true, drop_debugger: true },
+  },
+  chunkSizeWarningLimit: 600,
+  rollupOptions: {
+    output: {
+      manualChunks(id) {
+        if (!id.includes('node_modules')) return
+        if (id.includes('recharts')) return 'recharts'
+        if (id.includes('react-router')) return 'router'
+        if (id.includes('@supabase')) return 'supabase'
+        if (id.includes('react-dom') || /\/react\//.test(id)) return 'react-vendor'
+      },
+    },
+  },
+},
+```
+
+Dev-зависимости: `terser`, `vite-plugin-compression`.
+
+**Пример вывода `npm run build`** (отдельные чанки страниц):
+
+```text
+dist/assets/Recommendations-….js    3.74 kB │ gzip:  1.42 kB
+dist/assets/Progress-….js          8.84 kB │ gzip:  2.74 kB
+dist/assets/EmissionsPieChart-….js   0.68 kB │ gzip:  0.46 kB
+dist/assets/recharts-….js         318.35 kB │ gzip: 94.03 kB
+```
+
+До перехода на `/recommendations` или `/progress` их JS не загружается; recharts — только после расчёта в Calculator.
+
+### Проверка
+
+```bash
+cd frontend
+npm run build    # размеры чанков в консоли
+npm run test     # 91 тест, регрессии lazy/Suspense
+npm run preview  # prod-сборка локально
+```
+
+### Связанные файлы
+
+| Файл | Назначение |
+|------|------------|
+| `frontend/src/App.tsx` | Lazy-роуты Recommendations / Progress |
+| `frontend/src/components/RoutePageFallback.tsx` | UI загрузки для Suspense |
+| `frontend/src/components/Layout.tsx` | Preload чанков по hover/focus |
+| `frontend/src/pages/Calculator.tsx` | Lazy `EmissionsPieChart` |
+| `frontend/vite.config.ts` | Terser, compression, `manualChunks` |
+
+---
+
+## Оптимизация backend
+
+Оптимизации для **PostgreSQL (Supabase/PostgREST)** и **Fastify health-сервера** (`backend/health/`). Prisma в проекте нет: доменные данные читаются через PostgREST с фронта; health-сервер — health-check, приём логов и опциональный кэшированный API рекомендаций.
+
+### Архитектура и анализ запросов
+
+| Слой | Доступ к БД | N+1 |
+|------|-------------|-----|
+| **PostgREST** (Kong :8000) | `calculations`, `recommendations`, `user_progress` с фронта | Риск при запросах в цикле на клиенте; сейчас рекомендации — **один** `select` |
+| **Fastify health** (`pg`) | `SELECT 1` для `/health`, один `SELECT` для `/recommendations` | **Нет** запросов в циклах |
+
+Пример запроса рекомендаций с фронта (PostgREST):
+
+```ts
+// frontend/src/hooks/useEcoData.ts
+const { data } = await supabase
+  .from('recommendations')
+  .select('*')
+  .eq('is_active', true)
+  .order('id', { ascending: false })
+  .limit(50)
+```
+
+### 1. Индексы для часто фильтруемых полей
+
+Файл **`backend/supabase_performance_indexes.sql`** (после `supabase_migration.sql`):
+
+```sql
+-- calculations: RLS auth.uid() = user_id, история расчётов
+CREATE INDEX IF NOT EXISTS idx_calculations_user_id
+  ON public.calculations (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_calculations_user_created_at
+  ON public.calculations (user_id, created_at DESC);
+
+-- recommendations: WHERE is_active = true ORDER BY id DESC
+CREATE INDEX IF NOT EXISTS idx_recommendations_active_id
+  ON public.recommendations (id DESC)
+  WHERE is_active = true;
+
+-- client_errors: отчёты по времени / user_id
+CREATE INDEX IF NOT EXISTS idx_client_errors_created_at
+  ON public.client_errors (created_at DESC);
+```
+
+RLS для справочника рекомендаций приведён к фильтру на фронте:
+
+```sql
+CREATE POLICY "Public read recommendations" ON public.recommendations
+  FOR SELECT TO anon, authenticated
+  USING (is_active = true);
+```
+
+| Таблица | Поля фильтра | Индекс |
+|---------|--------------|--------|
+| `calculations` | `user_id`, сортировка `created_at` | `(user_id)`, `(user_id, created_at DESC)` |
+| `recommendations` | `is_active`, `id` | partial index `WHERE is_active` |
+| `client_errors` | `created_at`, `user_id` | `(created_at DESC)`, `(user_id)` |
+| `user_progress` | `user_id` | PK уже покрывает |
+
+### 2. GZIP / deflate ответов (Fastify)
+
+Плагин **`@fastify/compress`** — сжатие JSON/HTML ответов ≥ 1 KB:
+
+```ts
+// backend/health/src/plugins/security.ts
+await fastify.register(compress, {
+  global: true,
+  encodings: ['gzip', 'deflate'],
+  threshold: 1024,
+});
+```
+
+Проверка:
+
+```bash
+curl -s -H 'Accept-Encoding: gzip' -D - http://localhost:3002/health -o /dev/null
+# ожидается: Content-Encoding: gzip
+```
+
+### 3. In-memory кэш рекомендаций
+
+Справочник рекомендаций меняется редко → TTL-кэш (по умолчанию **5 мин**, `RECOMMENDATIONS_CACHE_TTL_MS`).
+
+```ts
+// backend/health/src/lib/memoryCache.ts
+export function createMemoryCache<T>(ttlMs: number): MemoryCache<T> {
+  // get() / set() с expiresAt
+}
+
+// backend/health/src/services/recommendations.ts
+const cache = createMemoryCache<RecommendationRow[]>(env.recommendationsCacheTtlMs);
+
+export async function getActiveRecommendations(pool: Pool) {
+  const cached = cache.get();
+  if (cached !== null) return { items: cached, cached: true };
+  const result = await pool.query(SELECT_ACTIVE_RECOMMENDATIONS);
+  cache.set(result.rows);
+  return { items: result.rows, cached: false };
+}
+```
+
+Эндпоинт **`GET /recommendations`** (опциональный BFF; фронт может по-прежнему использовать PostgREST):
+
+```bash
+curl -s -D - http://localhost:3002/recommendations | head -15
+# первый раз: X-Cache: MISS
+# повтор в течение TTL: X-Cache: HIT, Cache-Control: public, max-age=300
+```
+
+### 4. Безопасность и rate limit
+
+Плагины в **`backend/health/src/plugins/security.ts`**, регистрация в `app.ts`:
+
+| Плагин | Назначение |
+|--------|------------|
+| **`@fastify/helmet`** | Security-заголовки; CSP в `NODE_ENV=production` |
+| **`@fastify/rate-limit`** | Лимит по IP; `/health` и `/ready` в allowList |
+| **`@fastify/cors`** | `CORS_ORIGINS` — `*` в dev, список origin в prod |
+
+Лимиты по маршрутам:
+
+```ts
+// Глобально (security.ts)
+await fastify.register(rateLimit, {
+  global: true,
+  max: env.rateLimitGlobalMax,        // по умолчанию 200 / мин
+  timeWindow: env.rateLimitWindowMs,
+  allowList: (request) =>
+    request.url === '/ready' || request.url === '/health',
+});
+
+// POST /logs — жёстче (routes/logs.ts)
+config: {
+  rateLimit: { max: env.rateLimitLogsMax, timeWindow: env.rateLimitWindowMs },
+  bodyLimit: 8192,
+}
+```
+
+| Маршрут | Лимит (по умолчанию) |
+|---------|----------------------|
+| Глобально | 200 req / 60 с |
+| `POST /logs` | 30 req / 60 с, body ≤ 8 KB |
+| `GET /recommendations` | 60 req / 60 с |
+| `GET /health`, `GET /ready` | без глобального лимита (allowList) |
+
+Переменные — **`backend/health/.env.example`**:
+
+```env
+CORS_ORIGINS=*
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_GLOBAL_MAX=200
+RATE_LIMIT_LOGS_MAX=30
+RATE_LIMIT_RECOMMENDATIONS_MAX=60
+RECOMMENDATIONS_CACHE_TTL_MS=300000
+```
+
+### Проверка
+
+```bash
+cd backend/health
+npm install
+npm run build
+npm run dev   # или контейнер health-check в docker compose
+
+# Health + сжатие
+curl -s http://localhost:3002/ready
+
+# Кэш рекомендаций
+curl -s -D - http://localhost:3002/recommendations | grep -i x-cache
+```
+
+SQL-индексы — в Supabase Studio: **`backend/supabase_performance_indexes.sql`**.
+
+### Связанные файлы
+
+| Файл | Назначение |
+|------|------------|
+| `backend/supabase_performance_indexes.sql` | Индексы + RLS рекомендаций |
+| `backend/health/src/plugins/security.ts` | helmet, compress, rate-limit |
+| `backend/health/src/lib/memoryCache.ts` | TTL in-memory кэш |
+| `backend/health/src/services/recommendations.ts` | Запрос + кэш справочника |
+| `backend/health/src/routes/recommendations.ts` | `GET /recommendations` |
+| `backend/health/src/routes/logs.ts` | `POST /logs` + лимиты |
+| `backend/health/src/app.ts` | Регистрация плагинов и маршрутов |
+| `backend/health/.env.example` | CORS, rate limit, TTL кэша |
+
+---
+
 ## 📊 Аналитика
 
 ### Сервис
@@ -231,7 +586,7 @@ npm run test
 
 ### Сервис мониторинга
 
-Внешний uptime-мониторинг: **[Uptime by Better Stack](https://betterstack.com/uptime)** (бесплатный тариф, интервал проверки **5 минут**). Контейнер **`health-check`** в `backend/docker-compose.yml` — Fastify-сервер `backend/health/server.ts`.
+Внешний uptime-мониторинг: **[Uptime by Better Stack](https://betterstack.com/uptime)** (бесплатный тариф, интервал проверки **5 минут**). Контейнер **`health-check`** в `backend/docker-compose.yml` — Fastify-сервер `backend/health/` (Pino, `src/server.ts`).
 
 | Параметр | Значение |
 |----------|----------|
@@ -274,6 +629,170 @@ curl http://localhost:3002/health
 
 ---
 
+## Логирование (отчёт для ДЗ)
+
+Централизованная схема: **структурированные логи** на фронтенде и в health-сервисе, **JSON-файлы Docker** для всего Compose-стека, опционально **Better Stack Logtail** для агрегации контейнерных логов.
+
+### 1. Уровни логирования
+
+| Слой | Уровни | Где задаётся |
+|------|--------|--------------|
+| **Frontend** (`frontend/src/lib/logger.ts`) | `debug`, `info`, `warn`, `error` | Поведение по `import.meta.env.DEV` / `PROD` |
+| **Health-сервер** (Pino) | `trace`, `debug`, `info`, `warn`, `error`, `fatal` | `LOG_LEVEL` в `backend/.env` (по умолчанию `info`) |
+| **Docker / Supabase-стек** | Зависит от образа (`info` / `warning` / `error` в stdout) | Не унифицировано; собирается как текст/JSON в json-file |
+| **Supabase `client_errors`** | Фактически `warn` и `error` с фронта | `logWarn` / `logError` → дублирование в таблицу |
+
+**Правила EcoTrack (frontend):**
+
+- **dev** — все уровни в консоль (цветной вывод), `warn`/`error` additionally → `client_errors`.
+- **prod** — `info`/`debug` только локально в консоль не уходят на сервер; **`warn` и `error`** → `POST /logs`, Supabase `client_errors`, при сбое сети — буфер в **localStorage**.
+
+### 2. Структура логов (JSON-схема)
+
+#### Frontend — запись приложения
+
+Тип `StructuredLogRecord` (`frontend/src/lib/logger.ts`):
+
+```json
+{
+  "level": "warn",
+  "timestamp": "2026-05-16T13:07:43.000Z",
+  "message": "Текст сообщения (санитизирован)",
+  "context": "auth.login",
+  "metadata": { "httpStatus": 401, "code": "invalid_credentials" },
+  "userAgent": "Mozilla/5.0 ...",
+  "url": "http://localhost:5173/#/login"
+}
+```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `level` | `"debug" \| "info" \| "warn" \| "error"` | Уровень |
+| `timestamp` | ISO 8601 string | Время события |
+| `message` | string | Краткое описание (до 2000 символов) |
+| `context` | string? | Модуль/сценарий (`sanitizeLogContext`) |
+| `metadata` | object? | Произвольные поля **без PII** (`sanitizeLogMetadata`) |
+| `userAgent` | string | UA браузера |
+| `url` | string | Текущий URL (без секретов в query) |
+
+Перед отправкой из `metadata` удаляются ключи `email`, `password`, `token`, `authorization` и т.п.; строки проходят маскирование email/JWT.
+
+#### Health-сервер — HTTP (Pino + pino-http)
+
+Пример строки access-log:
+
+```json
+{
+  "level": 30,
+  "time": 1778937750065,
+  "pid": 1,
+  "hostname": "87c95860fbf2",
+  "reqId": "req-29",
+  "req": { "method": "GET", "url": "/ready", "remoteAddress": "127.0.0.1" },
+  "res": { "statusCode": 200 },
+  "responseTime": 10.53,
+  "msg": "request completed"
+}
+```
+
+Дополнительные поля HTTP-логгера: `method`, `url`, `statusCode`, `responseTime`, `reqId`.
+
+Клиентские логи с фронта принимаются `POST /logs` и пишутся в Pino с полями `client`, `context`, `metadata`, `userAgent`, `url`, `timestamp`.
+
+#### Docker json-file (stdout контейнера)
+
+Каждая строка — JSON или текст сервиса (Kong, GoTrue, PostgREST, Elixir). Метаданные драйвера: `tag` / `labels` = имя контейнера (`{{.Name}}`).
+
+#### Таблица `client_errors` (Supabase)
+
+| Колонка | Содержимое |
+|---------|------------|
+| `message` | Текст ошибки |
+| `stack` | Stack / JSON metadata |
+| `component_stack` | React component stack (Error Boundary) |
+| `url`, `user_agent` | Контекст браузера |
+| `user_id` | При наличии сессии |
+
+### 3. Где хранятся логи
+
+| Хранилище | Что попадает | Срок / объём |
+|-----------|--------------|--------------|
+| **Docker json-file** | stdout/stderr всех сервисов Compose (`logging: json-file`, 3×10 MB на контейнер) | Локально на хосте: `/var/lib/docker/containers/<id>/*-json.log` |
+| **Консоль браузера** | Frontend в dev: цветные `logInfo` / `logWarn` / … | Только сессия разработчика |
+| **localStorage** | Ключ `ecotrack-log-buffer`, до **50** записей FIFO | Только prod, если `POST /logs` недоступен |
+| **Health `POST /logs`** | `warn`/`error` с фронта (prod) | Pino stdout контейнера `health-check` |
+| **PostgreSQL `client_errors`** | `warn`/`error` с клиента (dev и prod) | Постоянно, RLS для authenticated |
+| **Better Stack Logtail** (опционально) | Агрегация Docker JSON-логов | Облако; профиль `monitoring`, сервис `log-aggregator` |
+
+Переменные (`backend/.env.example`, `frontend/.env.example`):
+
+```env
+LOG_LEVEL=info
+NODE_ENV=development
+LOGTAIL_SOURCE_TOKEN=          # обязателен для log-aggregator
+LOGTAIL_HOST=in.logs.betterstack.com
+VITE_LOGS_API_URL=http://localhost:3002/logs   # prod-отправка с фронта
+```
+
+Команды:
+
+```bash
+# Все сервисы, последние 100 строк
+docker compose logs -f --tail=100
+
+# Опционально: отправка Docker-логов в Better Stack
+docker compose --profile monitoring up -d log-aggregator
+```
+
+### 4. Как AI помогает анализировать логи
+
+| Подход | Пример |
+|--------|--------|
+| **Фильтрация в терминале** | `docker compose logs --tail=500 2>&1 \| grep -iE 'error\|warn\|PGRST\|timeout'` |
+| **Структурированный экспорт** | Сохранить вывод в файл → приложить к чату Cursor / приложению `@File` |
+| **Запрос к AI** | «Найди повторяющиеся ошибки, root cause, предложи fix в коде» — AI группирует `PGRST000`, таймауты deno.land, `Database check timeout` |
+| **JSON-логи Pino** | AI парсит поля `level`, `msg`, `responseTime`, `err` без ручного разбора |
+| **Better Stack Live tail** | Поиск по `service:supabase-auth`, алерты по паттернам |
+| **Кодовая база** | `@Codebase` + описание симптома → AI находит `logger.ts`, `logClientError.ts`, маршруты OAuth |
+
+Рекомендуемый промпт для ДЗ:
+
+```text
+@Codebase Проанализируй docker compose logs --tail=200:
+1) повторяющиеся ошибки 2) root cause 3) правки в коде 4) какие логи добавить
+```
+
+### 5. Типовые ошибки и как их искать
+
+| Симптом | Где искать | Паттерн / команда | Действие |
+|---------|------------|-------------------|----------|
+| БД недоступна при старте | `rest`, `health-check` | `PGRST000`, `Connection refused`, `Database check timeout` | `docker compose up -d db`, дождаться healthy, перезапуск `rest` / увеличить `DB_CHECK_TIMEOUT_MS` |
+| OAuth / JWT | `auth`, Kong | `"status":401`, `invalid`, `JWT` | Проверить `SITE_URL`, `ANON_KEY`, перелогин; смотреть `client_errors` |
+| PKCE / Яндекс | Frontend, `auth` | `PKCE`, `code verifier`, `flow_state` | `force_confirm=yes`, `authStorage`, не обновлять страницу callback |
+| Edge Functions не стартуют | `functions` | `deno.land`, `worker boot error`, `timed out` | Vendor/`npm:jose`, доступ в интернет, `deno-cache` |
+| Медленный health-check | `health-check` | `"responseTime":` > 1000, `Database health check failed` | Нагрузка на Postgres, таймаут пула |
+| Ошибки API PostgREST | Kong + браузер Network | HTTP 403/400, `PGRST` в теле | RLS, валидация payload, `interpretPostgrestError` |
+| Потеря логов в prod | Browser Application → localStorage | ключ `ecotrack-log-buffer` | Проверить `VITE_LOGS_API_URL`, поднять `health-check`, `flushBufferedLogs` при `online` |
+
+**Ложные срабатывания grep** (не путать с HTTP 500):
+
+- `responseTime` с подстрокой `500` в дробной части (`22.134625000006054`).
+- Порт `5000` у storage/realtime (`listening at :5000`).
+- `ErlSysMon long_schedule` — предупреждения BEAM при старте, не ошибка приложения.
+
+**Полезные файлы в репозитории:**
+
+| Файл | Назначение |
+|------|------------|
+| `frontend/src/lib/logger.ts` | Клиентский логгер |
+| `frontend/src/hooks/useLogger.ts` | Хук для компонентов |
+| `frontend/src/lib/logClientError.ts` | Запись в `client_errors` |
+| `backend/health/src/lib/logger.ts` | Pino |
+| `backend/health/src/plugins/pino-http.ts` | HTTP access log |
+| `backend/docker-compose.yml` | `x-logging`, `log-aggregator` |
+
+---
+
 ## 6. Как убедиться, что всё работает
 
 Выполняйте по порядку на чистом профиле браузера или в приватном окне.
@@ -299,12 +818,16 @@ curl http://localhost:3002/health
 | Путь | Роль |
 |------|------|
 | `backend/docker-compose.yml` | Локальный Supabase (Postgres, Auth, REST, Studio, …) |
-| `backend/health/` | Health-check сервер (порт 3002, `/health`, `/ready`) |
+| `backend/health/` | Fastify: `/health`, `/ready`, `POST /logs`, `GET /recommendations` (кэш), helmet/compress/rate-limit |
+| `backend/supabase_performance_indexes.sql` | Индексы Postgres для PostgREST |
+| `frontend/src/lib/logger.ts` | Структурированное логирование SPA |
 | `backend/.env.example` | Шаблон переменных для Compose (`HEALTH_WEBHOOK_URL`, `DB_*`) |
 | `backend/supabase_migration.sql` | Основная SQL-миграция приложения |
 | `backend/supabase_profile_trigger.sql` | Триггер `profiles` + бэкфилл для уже созданных пользователей |
 | `backend/supabase_security_patch.sql` | Патч RLS/GRANT для уже существующих БД |
 | `frontend/` | SPA EcoTrack |
+| `frontend/vite.config.ts` | Сборка: terser, compression, `manualChunks` |
+| `frontend/src/components/RoutePageFallback.tsx` | Fallback для lazy-роутов |
 | `frontend/analytics_goals.md` | Описание целей и событий Метрики |
 
 ---

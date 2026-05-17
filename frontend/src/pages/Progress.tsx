@@ -20,7 +20,12 @@ interface ProgressSaveFormProps {
   readonly onSave: (xp: number, level: number) => Promise<void>
 }
 
-function ProgressSaveForm({ initialXp, initialLevel, loading, onSave }: ProgressSaveFormProps) {
+const ProgressSaveForm = memo(function ProgressSaveForm({
+  initialXp,
+  initialLevel,
+  loading,
+  onSave,
+}: ProgressSaveFormProps) {
   const [xpDraft, setXpDraft] = useState(String(initialXp))
   const [levelDraft, setLevelDraft] = useState(String(initialLevel))
   const [saving, setSaving] = useState(false)
@@ -102,7 +107,7 @@ function ProgressSaveForm({ initialXp, initialLevel, loading, onSave }: Progress
       </button>
     </article>
   )
-}
+})
 
 const GOAL_TYPES = ['co2_reduction', 'xp', 'level'] as const
 

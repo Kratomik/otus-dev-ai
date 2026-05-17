@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAnalytics } from './hooks/useAnalytics'
 import Layout from './components/Layout'
@@ -10,8 +10,10 @@ import ToastHost from './components/ToastHost'
 import Login from './pages/Login'
 import YandexAccountConfirm from './pages/YandexAccountConfirm'
 import Register from './pages/Register'
-import Progress from './pages/Progress'
-import Recommendations from './pages/Recommendations'
+import RoutePageFallback from './components/RoutePageFallback'
+
+const Recommendations = lazy(() => import('./pages/Recommendations'))
+const Progress = lazy(() => import('./pages/Progress'))
 
 export default function App() {
   const location = useLocation()
@@ -69,8 +71,22 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/calculator" replace />} />
           <Route path="calculator" element={<Calculator />} />
-          <Route path="recommendations" element={<Recommendations />} />
-          <Route path="progress" element={<Progress />} />
+          <Route
+            path="recommendations"
+            element={
+              <Suspense fallback={<RoutePageFallback label="recommendations" />}>
+                <Recommendations />
+              </Suspense>
+            }
+          />
+          <Route
+            path="progress"
+            element={
+              <Suspense fallback={<RoutePageFallback label="progress" />}>
+                <Progress />
+              </Suspense>
+            }
+          />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />

@@ -1,6 +1,7 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { shouldPersistHttpLog } from './authMessages'
 import { logApiHttpErrorToSupabase } from './logClientError'
+import { logWarn } from './logger'
 
 /** HTTP-код из PostgREST / Supabase REST (если клиент его отдаёт). */
 export function getPostgrestHttpStatus(error: PostgrestError | null): number | null {
@@ -66,10 +67,9 @@ export function interpretCaughtRequestError(err: unknown, context: string): stri
     })
     return 'Сетевая ошибка. Проверьте подключение и повторите попытку.'
   }
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.warn(`[API catch] ${context}`, err)
-  }
+  logWarn(`[API catch] ${context}`, context, {
+    err: err instanceof Error ? err.message : String(err),
+  })
   if (err instanceof Error && err.message.trim()) return err.message.trim()
   return 'Не удалось выполнить запрос.'
 }

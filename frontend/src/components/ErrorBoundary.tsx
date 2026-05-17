@@ -21,10 +21,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   public componentDidCatch(error: unknown, info: ErrorInfo): void {
-    // Always log locally for dev visibility.
-    // eslint-disable-next-line no-console
-    console.error('Render error caught by ErrorBoundary', error, info)
-
     trackCapturedError(error, {
       source: 'react_error_boundary',
       componentStack: info.componentStack ?? undefined,

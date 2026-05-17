@@ -15,6 +15,19 @@ const navItems: NavItem[] = [
   { to: '/progress', label: 'Progress', icon: BarChart3 },
 ]
 
+const preloadRecommendations = (): void => {
+  void import('../pages/Recommendations')
+}
+
+const preloadProgress = (): void => {
+  void import('../pages/Progress')
+}
+
+function preloadRoute(to: string): void {
+  if (to === '/recommendations') preloadRecommendations()
+  if (to === '/progress') preloadProgress()
+}
+
 function Layout() {
   return (
     <div className="min-h-screen bg-[#F5F9F7] text-[#0D1B2A]">
@@ -34,6 +47,8 @@ function Layout() {
                 <li key={to} className="min-w-fit md:w-full">
                   <NavLink
                     to={to}
+                    onMouseEnter={() => preloadRoute(to)}
+                    onFocus={() => preloadRoute(to)}
                     className={({ isActive }) =>
                       [
                         'flex min-h-[44px] items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors motion-reduce:transition-none',

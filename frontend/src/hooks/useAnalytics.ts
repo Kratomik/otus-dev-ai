@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { logDebug, logInfo } from '../lib/logger'
 import { getYandexMetrikaId, type YmFn } from '../lib/yandexMetrika'
 
 /** Провайдеры регистрации. */
@@ -103,19 +104,11 @@ let previousOnUnhandledRejection: typeof window.onunhandledrejection = null
 
 function devLog(message: string, payload?: unknown): void {
   if (!isDev) return
-  if (payload !== undefined) {
-    console.info(`[analytics] ${message}`, payload)
-  } else {
-    console.info(`[analytics] ${message}`)
-  }
+  logDebug(message, 'analytics', payload !== undefined ? { payload } : undefined)
 }
 
 function logMetrikaUnavailable(action: string, payload?: unknown): void {
-  if (payload !== undefined) {
-    console.info(`[analytics] Metrika unavailable — ${action}`, payload)
-  } else {
-    console.info(`[analytics] Metrika unavailable — ${action}`)
-  }
+  logInfo(`Metrika unavailable — ${action}`, 'analytics', payload !== undefined ? { payload } : undefined)
 }
 
 function getYm(): YmFn | undefined {

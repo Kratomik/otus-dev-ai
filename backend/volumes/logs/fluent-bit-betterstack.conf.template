@@ -1,0 +1,29 @@
+# Шаблон: env подставляется в entrypoint (см. log-aggregator-entrypoint.sh)
+
+[SERVICE]
+    Flush        1
+    Daemon       Off
+    Log_Level    info
+    Parsers_File parsers.conf
+
+[INPUT]
+    Name              tail
+    Path              /var/lib/docker/containers/*/*-json.log
+    Parser            docker
+    Tag               docker.*
+    Refresh_Interval  5
+    Mem_Buf_Limit     5MB
+    Skip_Long_Lines   On
+
+[OUTPUT]
+    Name          http
+    Match         *
+    Host          ${LOGTAIL_HOST}
+    Port          ${LOGTAIL_PORT}
+    URI           /fluentbit
+    Format        msgpack
+    Header        Authorization Bearer ${LOGTAIL_SOURCE_TOKEN}
+    Header        Content-Type application/msgpack
+    tls           On
+    tls.verify    On
+    Retry_Limit   5
