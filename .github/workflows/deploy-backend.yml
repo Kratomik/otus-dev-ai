@@ -2,13 +2,14 @@
 # Поэтому отдельный «деплой в Actions» без внешней платформы невозможен: здесь только проверка compose в CI.
 # Реальный хостинг: свой VPS, Render/Railway/Fly (подключение репозитория в UI), или Supabase Cloud — без SSH-ключей в workflow.
 #
-# Настройки не нужны: используется закоммиченный backend/.env.example (шаблон Supabase, только для валидации).
+# Настройки: backend/.env.example + LOGTAIL_SOURCE_TOKEN (заглушка для `compose config`, сервис monitoring).
 name: Backend stack (compose check)
 
 on:
   push:
     branches:
       - master
+      - main
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
@@ -36,7 +37,28 @@ jobs:
         shell: bash
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate Compose (env from .env.example)
-        run: docker compose --env-file .env.example config -q
+        env:
+          # log-aggregator (profile monitoring) требует непустой токен при `compose config`
+          LOGTAIL_SOURCE_TOKEN: ci-compose-validation-only
+        run: |
+          docker compose --env-file .env.example config -q
+          echo "Compose config OK"
+
+      - name: Build health server (TypeScript)
+        working-directory: backend/health
+        run: |
+          npm ci
+          npm run build
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Backend CI"
+            echo "- \`docker compose config\` — OK"
+            echo "- \`backend/health\` — \`npm run build\` OK"
+            echo ""
+            echo "Для Better Stack: задайте реальный \`LOGTAIL_SOURCE_TOKEN\` в \`backend/.env\` и \`docker compose --profile monitoring up -d log-aggregator\`"
+          } >> "$GITHUB_STEP_SUMMARY"

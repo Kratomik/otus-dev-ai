@@ -19,8 +19,10 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
-# Project Pages URL: https://<owner>.github.io/<repo>/
-# Пример: https://kratomik.github.io/otus-dev-ai/#/login (не корень kratomik.github.io)
+# Project Pages (не user site):
+#   https://<owner>.github.io/<repo>/#/login
+#   https://kratomik.github.io/otus-dev-ai/#/login
+# Неверно: https://kratomik.github.io/#/login  → 404 GitHub (другой сайт, нет /otus-dev-ai/)
 
 jobs:
   test:
@@ -78,6 +80,18 @@ jobs:
       - name: Build for GitHub Pages
         run: npm run build:pages
 
+      - name: Verify Pages base path in dist
+        run: |
+          REPO="${{ github.event.repository.name }}"
+          if ! grep -q "/${REPO}/" dist/index.html; then
+            echo "::error::index.html must reference assets under /${REPO}/ (VITE_BASE_PATH). Check VITE_BASE_PATH in workflow."
+            grep -E 'src=|href=' dist/index.html | head -20 || true
+            exit 1
+          fi
+          test -f dist/404.html
+          test -f dist/.nojekyll
+          echo "Base path /${REPO}/ verified in dist/"
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
@@ -86,11 +100,24 @@ jobs:
         with:
           path: frontend/dist
 
-      - name: Deployment URL hint
+      - name: Deployment URL (correct vs wrong)
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
         run: |
-          echo "## GitHub Pages" >> "$GITHUB_STEP_SUMMARY"
-          echo "Откройте: **https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/**" >> "$GITHUB_STEP_SUMMARY"
-          echo "Логин: \`#/login\` → https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/#/login" >> "$GITHUB_STEP_SUMMARY"
+          CORRECT="https://${OWNER}.github.io/${REPO}/#/login"
+          WRONG="https://${OWNER}.github.io/#/login"
+          {
+            echo "## GitHub Pages — откройте приложение"
+            echo ""
+            echo "| | URL |"
+            echo "|---|-----|"
+            echo "| ✅ **Верно** | \`${CORRECT}\` |"
+            echo "| ❌ **404** | \`${WRONG}\` (нет \`/${REPO}/\` в пути) |"
+            echo ""
+            echo "Настройки репозитория: **Settings → Pages → Source: GitHub Actions**."
+            echo "Секреты: \`VITE_SUPABASE_URL\`, \`VITE_SUPABASE_ANON_KEY\`."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     environment:
@@ -103,3 +130,8 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Published URL
+        run: |
+          echo "Deployed: ${{ steps.deployment.outputs.page_url }}"
+          echo "Login: ${{ steps.deployment.outputs.page_url }}#/login"
