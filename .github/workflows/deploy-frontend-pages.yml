@@ -1,13 +1,12 @@
 name: Deploy Frontend to GitHub Pages
 
 on:
+  # Любой push в master/main — пересборка Pages (secrets подхватываются заново).
+  # Раньше был paths: frontend/** — пустые коммиты и правки только Readme/корня workflow не запускали.
   push:
     branches:
       - master
       - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend-pages.yml"
   workflow_dispatch:
     inputs:
       vite_supabase_url:
