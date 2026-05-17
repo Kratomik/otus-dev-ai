@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { trackCapturedError } from '../lib/errorTracking'
 import { logClientErrorToSupabase } from '../lib/logClientError'
+import { assignAppLocation } from '../lib/appLocation'
 import { sanitizeDisplayText } from '../lib/security'
 
 export interface ErrorBoundaryProps {
@@ -37,7 +38,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   private readonly handleGoHome = () => {
-    window.location.assign('/#/calculator')
+    assignAppLocation('#/calculator')
   }
 
   public render(): ReactNode {

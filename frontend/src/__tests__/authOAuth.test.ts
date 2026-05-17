@@ -25,6 +25,24 @@ describe('authOAuth', () => {
     })
   })
 
+  it('normalizes empty hash on GitHub Pages project path to login under base', () => {
+    vi.stubEnv('BASE_URL', '/otus-dev-ai/')
+    let replaced = ''
+    const location = {
+      pathname: '/otus-dev-ai/',
+      search: '',
+      hash: '',
+      origin: 'https://kratomik.github.io',
+      replace: (url: string) => {
+        replaced = url
+      },
+    } as unknown as Location
+
+    expect(normalizeAuthCallbackLocation(location)).toBe(true)
+    expect(replaced).toBe('https://kratomik.github.io/otus-dev-ai/#/login')
+    vi.unstubAllEnvs()
+  })
+
   it('normalizes ?code= on root with hash route', () => {
     let replaced = ''
     const location = {

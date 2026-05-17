@@ -3,6 +3,7 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase, type Database } from '../lib/supabase'
 import { interpretCaughtRequestError, interpretPostgrestError } from '../lib/apiHttpErrors'
 import { buildCalculationInsertPayload, clampLevel, clampNonNegativeInt, sanitizeBadges } from '../lib/security'
+import { assignAppLocation } from '../lib/appLocation'
 import { parseCalculationDraft } from '../lib/validation'
 
 type ViewState = 'idle' | 'loading' | 'error' | 'success'
@@ -14,9 +15,8 @@ type UserProgressRow = Database['public']['Tables']['user_progress']['Row']
 const LAST_CALCULATION_STORAGE_KEY = 'eco:last_calculation'
 
 function redirectToLogin(): void {
-  // App uses HashRouter, so login route lives under "#/login".
   if (window.location.hash.startsWith('#/login')) return
-  window.location.assign('/#/login')
+  assignAppLocation('#/login')
 }
 
 function handleQueryError(

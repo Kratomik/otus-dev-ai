@@ -1,6 +1,8 @@
+import { buildAppLocationUrl, getOAuthCallbackPathname, getOAuthCallbackUrl } from './appLocation'
+
 /** OAuth redirect URI must not contain `#` (fragment is not sent back to the client). */
 export function getOAuthRedirectTo(origin: string = window.location.origin): string {
-  return `${origin}/auth/callback`
+  return getOAuthCallbackUrl(origin)
 }
 
 /**
@@ -36,25 +38,36 @@ export function normalizeAuthCallbackLocation(location: Location = window.locati
     search.includes('error=') ||
     search.includes('error_description=')
 
+  const callbackPath = getOAuthCallbackPathname()
+
   if (hasOAuthParams && hash !== `#/auth/callback${search}`) {
-    location.replace(`${origin}/#/auth/callback${search}`)
+    location.replace(buildAppLocationUrl(`#/auth/callback${search}`, origin))
     return true
   }
 
   if (!hash || hash === '#') {
-    if (pathname === '/login' || pathname === '/register' || pathname === '/auth/callback') {
-      location.replace(`${origin}/#${pathname}${search}`)
+    if (pathname === '/login' || pathname === '/register' || pathname === callbackPath) {
+      const hashPath =
+        pathname === callbackPath ? '#/auth/callback' : `#${pathname}${search}`
+      location.replace(buildAppLocationUrl(hashPath, origin))
       return true
     }
-    location.replace(`${origin}/#/login`)
+    location.replace(buildAppLocationUrl('#/login', origin))
     return true
   }
 
   if (
-    (pathname === '/login' || pathname === '/register' || pathname === '/auth/callback') &&
+    (pathname === '/login' ||
+      pathname === '/register' ||
+      pathname === callbackPath ||
+      pathname.endsWith('/auth/callback')) &&
     !hash.startsWith('#/')
   ) {
-    location.replace(`${origin}/#${pathname}${search}`)
+    const hashPath =
+      pathname === callbackPath || pathname.endsWith('/auth/callback')
+        ? '#/auth/callback'
+        : `#${pathname}`
+    location.replace(buildAppLocationUrl(`${hashPath}${search}`, origin))
     return true
   }
 
