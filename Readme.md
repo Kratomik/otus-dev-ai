@@ -182,9 +182,132 @@ VITE_SUPABASE_ANON_KEY=<ANON_KEY из backend/.env>
 
 > **Важно:** `http://localhost:8000` в secrets GitHub **не сработает** для посетителей Pages с других устройств — браузер обращается к их localhost, а не к вашему. Для демо на Pages нужен **доступный из интернета** URL (VPS, туннель ngrok/cloudflared к порту 8000 и т.п.).
 
-После добавления secrets перезапустите деплой: **Actions → Deploy Frontend to GitHub Pages → Run workflow** (или push в `master` с изменением `frontend/**`).
+После добавления secrets перезапустите деплой: **Actions → Deploy Frontend to GitHub Pages → Run workflow** (или push в `master`/`main`).
 
-В **Settings → Pages** источник: **GitHub Actions**.
+В **Settings → Pages** источник: **GitHub Actions**. Подробности workflow — в разделе [**Описание настроек CI/CD**](#описание-настроек-cicd) ниже.
+
+---
+
+## Описание настроек CI/CD
+
+В репозитории два workflow в [`.github/workflows/`](.github/workflows/): **деплой SPA на GitHub Pages** и **проверка backend в CI** (без выкладки Docker-стека на runner).
+
+| Workflow | Файл | Назначение |
+|----------|------|------------|
+| **Deploy Frontend to GitHub Pages** | [`deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) | Тесты, сборка Vite, публикация `frontend/dist` на GitHub Pages |
+| **Backend stack (compose check)** | [`deploy-backend.yml`](.github/workflows/deploy-backend.yml) | Валидация `docker compose config` и сборка Fastify health-сервера |
+
+---
+
+### Frontend: Deploy Frontend to GitHub Pages
+
+#### Когда запускается
+
+| Событие | Условие |
+|---------|---------|
+| **push** | Ветки `master` или `main` (любые изменения в коммите) |
+| **workflow_dispatch** | Ручной запуск в Actions; опциональные поля `vite_supabase_url`, `vite_supabase_anon_key` |
+
+`concurrency`: группа `pages`, `cancel-in-progress: true` — при новом push предыдущий деплой отменяется.
+
+#### Jobs (цепочка)
+
+```mermaid
+flowchart LR
+  test[test] --> build[build]
+  build --> deploy[deploy]
+```
+
+| Job | Runner | Таймаут | Что делает |
+|-----|--------|---------|------------|
+| **test** | `ubuntu-latest` | 15 мин | `npm ci`, `npm run test` в `frontend/` |
+| **build** | `ubuntu-latest` | 15 мин | Сборка, проверки, артефакт Pages |
+| **deploy** | `ubuntu-latest` | 10 мин | Публикация через `actions/deploy-pages@v4` |
+
+Job **deploy** использует environment **`github-pages`** и требует в репозитории: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+#### Permissions
+
+| Job | Права |
+|-----|--------|
+| `test`, `build` (начало) | `contents: read`, `pages: write`, `id-token: write` |
+| `deploy` | те же (для OIDC и деплоя Pages) |
+
+#### Переменные и secrets (job `build`)
+
+Значения **вшиваются в бандл на этапе `vite build`** (не подставляются в рантайме на Pages).
+
+| Переменная | Источник в CI | Назначение |
+|------------|---------------|------------|
+| `VITE_SUPABASE_URL` | `workflow_dispatch` input → **Variable** `vars.VITE_SUPABASE_URL` → **Secret** `secrets.VITE_SUPABASE_URL` | URL Kong / Supabase API для клиента |
+| `VITE_SUPABASE_ANON_KEY` | input → **Secret** `secrets.VITE_SUPABASE_ANON_KEY` | `ANON_KEY` из `backend/.env` |
+| `VITE_YANDEX_METRIKA_ID` | Secret (опционально) | Счётчик Метрики |
+| `VITE_BASE_PATH` | Шаг **Resolve GitHub Pages base path** | `/` (user site) или `/{repo}/` (project site) |
+
+В job **test** заданы фиктивные `VITE_*` только для Vitest (`http://127.0.0.1:54329`).
+
+#### Шаги сборки (`build`)
+
+1. **Resolve GitHub Pages base path** — для репозитория `owner.github.io` → `vite_base=/`; иначе project site → `vite_base=/{имя_репо}/` (например `/otus-dev-ai/`).
+2. **Validate Supabase env** — `node scripts/verify-supabase-build-env.mjs` (URL и ключ не пустые).
+3. **Build for GitHub Pages** — `npm run build:pages` (`verify` → `tsc` + `vite build` → `prepare-github-pages.mjs`: `404.html`, `.nojekyll`, подсказка project site).
+4. **Verify Supabase config in dist** — ключ и URL присутствуют в `dist/assets/*.js`.
+5. **Verify dist output** — наличие `index.html`, `404.html`, `.nojekyll`; для project site в `index.html` есть префикс `/{repo}/`.
+6. **Upload artifact** → **deploy** публикует каталог `frontend/dist`.
+
+Итоговый URL логина для project site: `https://{owner}.github.io/{repo}/#/login`.
+
+#### Ручной запуск
+
+**Actions → Deploy Frontend to GitHub Pages → Run workflow** — можно переопределить Supabase URL/ключ без правки secrets.
+
+---
+
+### Backend: Backend stack (compose check)
+
+> **Важно:** workflow **не деплоит** Supabase на сервер GitHub. После job виртуальная машина удаляется; постоянный хостинг — VPS, Render/Railway/Fly, Supabase Cloud и т.п. Здесь только **CI-проверка** конфигурации.
+
+#### Когда запускается
+
+| Событие | Условие |
+|---------|---------|
+| **push** | `master` / `main`, если изменились `backend/**` или `.github/workflows/deploy-backend.yml` |
+| **pull_request** | те же `paths` (проверка PR) |
+| **workflow_dispatch** | Ручной запуск без фильтра по путям |
+
+`concurrency`: группа `backend-compose-ci`, `cancel-in-progress: true`.
+
+#### Job `validate-compose`
+
+| Шаг | Каталог | Действие |
+|-----|---------|----------|
+| **Validate Compose** | `backend/` | `docker compose --env-file .env.example config -q` |
+| **Build health server** | `backend/health/` | `npm ci`, `npm run build` (TypeScript → Fastify) |
+
+Для шага Compose в env задаётся заглушка **`LOGTAIL_SOURCE_TOKEN=ci-compose-validation-only`** — сервис `log-aggregator` (profile `monitoring`) требует непустой токен при `compose config`. Реальный токен Better Stack — только в локальном `backend/.env` при `docker compose --profile monitoring up -d log-aggregator`.
+
+Secrets в этом workflow **не используются**; эталон окружения — [`backend/.env.example`](backend/.env.example).
+
+---
+
+### Сводка: что настроить в GitHub
+
+| Настройка | Где | Для чего |
+|-----------|-----|----------|
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | **Settings → Secrets and variables → Actions** | Сборка frontend на Pages |
+| `VITE_YANDEX_METRIKA_ID` | Secret (опционально) | Метрика в production-бандле |
+| **Pages → Source: GitHub Actions** | Settings → Pages | Job `deploy` |
+| `LOGTAIL_SOURCE_TOKEN` | Локально `backend/.env` | Не CI; только мониторинг на своей машине |
+
+### Связанные файлы
+
+| Путь | Роль |
+|------|------|
+| [`.github/workflows/deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) | Pipeline frontend |
+| [`.github/workflows/deploy-backend.yml`](.github/workflows/deploy-backend.yml) | Pipeline backend (compose + health build) |
+| [`frontend/scripts/verify-supabase-build-env.mjs`](frontend/scripts/verify-supabase-build-env.mjs) | Проверка env до сборки |
+| [`frontend/scripts/verify-pages-supabase-in-dist.mjs`](frontend/scripts/verify-pages-supabase-in-dist.mjs) | Проверка env в `dist` |
+| [`frontend/scripts/prepare-github-pages.mjs`](frontend/scripts/prepare-github-pages.mjs) | SPA fallback для Pages |
 
 ---
 
