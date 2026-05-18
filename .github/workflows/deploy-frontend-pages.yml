@@ -28,7 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  quality:
+    name: Lint and test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -51,13 +52,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint (ESLint)
+        run: npm run lint
+
       - name: Run tests
         run: npm run test
 
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: test
+    needs: quality
     env:
       # Repository variable or secret; workflow_dispatch can override URL
       VITE_SUPABASE_URL: ${{ inputs.vite_supabase_url || vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}

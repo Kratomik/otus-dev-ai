@@ -155,6 +155,8 @@ npm run test
 
 ### GitHub Pages (production)
 
+> **Локальный backend, не облачный деплой:** Supabase **не выкладывается** в GitHub Actions (runner существует только на время job). Стек поднимается **локально** — `docker compose` в `backend/` по разделам 2–4 этого Readme. На Pages попадает только статический frontend; **end-to-end** (Auth, API) с опубликованного URL работает, если у вас поднят локальный Supabase и в CI при сборке переданы корректные `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY` (см. [integration_documentation.md](integration_documentation.md)).
+
 Сборка и деплой: workflow [`.github/workflows/deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) (ветка `master`).
 
 **URL приложения** (project site, не корень `github.io`):
@@ -192,6 +194,8 @@ VITE_SUPABASE_ANON_KEY=<ANON_KEY из backend/.env>
 
 В репозитории два workflow в [`.github/workflows/`](.github/workflows/): **деплой SPA на GitHub Pages** и **проверка backend в CI** (без выкладки Docker-стека на runner).
 
+**Backend не деплоится в Actions:** job backend только валидирует Compose и собирает health-сервер; Supabase для приложения всегда поднимается **локально** ([integration_documentation.md — локальный режим](integration_documentation.md#локальный-режим-backend-важно-для-ревью)). Frontend на Pages ходит в API по URL/ключу, **вшитым при `vite build`**; для проверки с `localhost:8000` нужен запущенный `docker compose` на той же машине, с которой открывают сайт.
+
 | Workflow | Файл | Назначение |
 |----------|------|------------|
 | **Deploy Frontend to GitHub Pages** | [`deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) | Тесты, сборка Vite, публикация `frontend/dist` на GitHub Pages |
@@ -214,15 +218,17 @@ VITE_SUPABASE_ANON_KEY=<ANON_KEY из backend/.env>
 
 ```mermaid
 flowchart LR
-  test[test] --> build[build]
+  quality[quality] --> build[build]
   build --> deploy[deploy]
 ```
 
 | Job | Runner | Таймаут | Что делает |
 |-----|--------|---------|------------|
-| **test** | `ubuntu-latest` | 15 мин | `npm ci`, `npm run test` в `frontend/` |
+| **quality** (Lint and test) | `ubuntu-latest` | 15 мин | `npm ci` → **`npm run lint`** (ESLint) → `npm run test` |
 | **build** | `ubuntu-latest` | 15 мин | Сборка, проверки, артефакт Pages |
 | **deploy** | `ubuntu-latest` | 10 мин | Публикация через `actions/deploy-pages@v4` |
+
+**Quality gate:** в проекте нет Prettier/`format:check` — стиль и статический анализ проверяет только **ESLint** (`eslint.config.js`, `npm run lint`). TypeScript — отдельно в `npm run build` (`tsc -b`).
 
 Job **deploy** использует environment **`github-pages`** и требует в репозитории: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
@@ -230,7 +236,7 @@ Job **deploy** использует environment **`github-pages`** и требу
 
 | Job | Права |
 |-----|--------|
-| `test`, `build` (начало) | `contents: read`, `pages: write`, `id-token: write` |
+| `quality`, `build` (начало) | `contents: read`, `pages: write`, `id-token: write` |
 | `deploy` | те же (для OIDC и деплоя Pages) |
 
 #### Переменные и secrets (job `build`)
@@ -244,7 +250,7 @@ Job **deploy** использует environment **`github-pages`** и требу
 | `VITE_YANDEX_METRIKA_ID` | Secret (опционально) | Счётчик Метрики |
 | `VITE_BASE_PATH` | Шаг **Resolve GitHub Pages base path** | `/` (user site) или `/{repo}/` (project site) |
 
-В job **test** заданы фиктивные `VITE_*` только для Vitest (`http://127.0.0.1:54329`).
+В job **quality** заданы фиктивные `VITE_*` только для Vitest (`http://127.0.0.1:54329`).
 
 #### Шаги сборки (`build`)
 

@@ -5,6 +5,7 @@
  * Сессия JWT только в памяти вкладки (authStorage), не в localStorage.
  */
 
+// eslint-disable-next-line no-control-regex -- намеренно удаляем управляющие и bidi-символы из пользовательского ввода
 const CONTROL_AND_BIDI = /[\u0000-\u001F\u007F\u200E\u200F\u202A-\u202E]/g
 
 /** Текст из API/ошибок для безопасного вывода в React (без HTML). */

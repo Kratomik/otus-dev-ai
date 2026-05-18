@@ -173,19 +173,15 @@ function devConsoleOutput(record: StructuredLogRecord): void {
 
   switch (record.level) {
     case 'error':
-      // eslint-disable-next-line no-console
       console.error(label, levelStyle, textStyle, payload)
       break
     case 'warn':
-      // eslint-disable-next-line no-console
       console.warn(label, levelStyle, textStyle, payload)
       break
     case 'debug':
-      // eslint-disable-next-line no-console
       console.debug(label, levelStyle, textStyle, payload)
       break
     default:
-      // eslint-disable-next-line no-console
       console.info(label, levelStyle, textStyle, payload)
   }
 }

@@ -13,15 +13,14 @@ export interface UseSessionResult {
 }
 
 export function useSession(): UseSessionResult {
-  const [state, setState] = useState<ViewState>('loading')
+  const [state, setState] = useState<ViewState>(() =>
+    isSupabaseConfigured() ? 'loading' : 'success',
+  )
   const [error, setError] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
-      setState('success')
-      setCurrentUser(null)
-      setError(null)
       return
     }
 
