@@ -312,11 +312,164 @@ npm run dev
 
 ---
 
+## Использование AI
+
+По заданию AI (Cursor Agent) использовался для генерации **CI/CD**, **аудита безопасности**, **анализа логов**, оптимизации и интеграционной документации. Ниже — какие задачи решались и **какие промпты** применялись (полный набор шаблонов — в [`promts.md`](promts.md); процесс MVP — в [`development_report.md`](development_report.md)).
+
+**Инструмент:** Cursor IDE, режим Agent, контекст `@Codebase` / `@File` / `@Terminal` где указано.
+
+### Сводка по областям
+
+| Область | Результат в репозитории | Где смотреть |
+|---------|-------------------------|-------------|
+| CI/CD (frontend) | Workflow Pages: lint → test → build → deploy; проверка `VITE_*` | [`.github/workflows/deploy-frontend-pages.yml`](.github/workflows/deploy-frontend-pages.yml) |
+| CI/CD (backend) | Валидация Compose + сборка health (без деплоя стека) | [`.github/workflows/deploy-backend.yml`](.github/workflows/deploy-backend.yml) |
+| Аудит безопасности | OWASP, RLS, CSP, `ProtectedRoute`, `security.ts` | [`security_audit.md`](security_audit.md) (Bug-Report) |
+| Анализ логов | Root cause, таблицы симптомов, типовые паттерны | [Readme.md — логирование](Readme.md#логирование-отчёт-для-дз), §8 выше |
+| Оптимизация | Frontend/backend perf, индексы SQL | [Readme.md — оптимизация](Readme.md#оптимизация-frontend), `backend/supabase_performance_indexes.sql` |
+| Интеграция / ДЗ | Этот файл, блок про локальный backend | `integration_documentation.md` |
+
+---
+
+### CI/CD (GitHub Actions)
+
+**Цель:** автоматизировать quality gate и деплой SPA; для backend — только проверка конфигурации, без подъёма Supabase на runner.
+
+**Промпт (генерация и доработка frontend workflow):**
+
+```text
+Добавь GitHub Actions для EcoTrack (React + Vite):
+1) job quality: npm ci, npm run lint (ESLint), npm run test (Vitest)
+2) job build: VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY из secrets/vars на этапе vite build,
+   npm run build:pages, проверка что ключи вшиты в dist
+3) job deploy: GitHub Pages (project site base /{repo}/)
+4) workflow_dispatch с опциональным override Supabase env
+Prettier в проекте нет — quality gate только ESLint.
+Backend в Actions не деплоить — runner одноразовый, Supabase локально через docker compose.
+```
+
+**Промпт (backend workflow):**
+
+```text
+Создай workflow для backend/: docker compose --env-file .env.example config -q,
+сборка backend/health (npm ci && npm run build).
+LOGTAIL_SOURCE_TOKEN — заглушка для compose config. Без SSH и без деплоя на runner.
+Триггер: push/PR при изменении backend/**.
+```
+
+**Что сделал AI:** файлы workflow, скрипты `verify-supabase-build-env.mjs`, `verify-pages-supabase-in-dist.mjs`, `prepare-github-pages.mjs`, шаг `npm run lint`, раздел «Описание настроек CI/CD» в Readme.
+
+---
+
+### Аудит безопасности
+
+**Цель:** OWASP Top 10, зависимости, RLS, XSS/CSRF/SQLi, маршруты без авторизации.
+
+**Промпт:**
+
+```text
+@Codebase Проведи аудит безопасности EcoTrack (React + Supabase self-hosted):
+1) npm audit в frontend и корне
+2) OWASP Top 10: access control, injection, XSS, auth, misconfiguration
+3) RLS и GRANT в SQL-миграциях, права anon
+4) Клиент: dangerouslySetInnerHTML, localStorage, CSP, ProtectedRoute
+5) Таблица: проблема | риск | исправление | файлы
+Оформи отчёт в security_audit.md (Bug-Report).
+```
+
+**Что сделал AI:** [`security_audit.md`](security_audit.md) — 12 находок с исправлениями; патчи SQL (`supabase_security_hardening.sql` и др.); `frontend/src/lib/security.ts`, `ProtectedRoute`, валидация в `supabase.ts` / `validation.ts`; тесты `security.test.ts`.
+
+---
+
+### Анализ логов
+
+**Цель:** разбор Docker/health/frontend логов, root cause, предложения по коду и недостающим полям логов.
+
+Промпты из [`promts.md`](promts.md) (раздел «Поиск проблем в логах»):
+
+```text
+@Terminal docker compose logs -f --tail=500 backend | grep -E "error|warn|500"
+Проанализируй выведенные логи:
+1. Выдели повторяющиеся ошибки
+2. Определи корневую причину (root cause)
+3. Предложи конкретные исправления в коде
+4. Укажи, какие логи нужно добавить для лучшей диагностики
+```
+
+```text
+@File: docker-logs.json (скопируйте JSON-логи из docker compose logs --tail=100)
+Найди в логах паттерны:
+1. Ошибки подключения к БД (P1000, P1001)
+2. Ошибки валидации (400, 422)
+3. Ошибки аутентификации (401, 403)
+4. Таймауты и медленные запросы (>1000ms)
+Выведи таблицу: Частота | Уровень | Файл/Роут | Решение
+```
+
+**Промпт из Readme (сводный для ДЗ):**
+
+```text
+@Codebase Проанализируй docker compose logs --tail=200:
+1) повторяющиеся ошибки 2) root cause 3) правки в коде 4) какие логи добавить
+```
+
+**Что сделал AI:** структура логирования в Readme (уровни, JSON-схема, `client_errors`, Better Stack); `frontend/src/lib/logger.ts`, `logClientError.ts`; Pino в `backend/health/`; таблица типовых ошибок (OAuth, PGRST, PKCE, health timeout).
+
+---
+
+### Оптимизация (дополнительно)
+
+Из [`promts.md`](promts.md) — использовались при настройке perf-разделов Readme:
+
+| Промпт | Фокус |
+|--------|--------|
+| `@Codebase` … React lazy, useMemo, Vite chunks, terser, compression | Frontend bundle, Recharts lazy |
+| `@Codebase` … N+1, индексы, GZIP, helmet, rate-limit, кэш recommendations | Health + SQL indexes |
+
+---
+
+### Интеграция, OAuth, Pages
+
+Примеры промптов из сессий доработки (не все в `promts.md`):
+
+```text
+Исправь редирект GitHub Pages: base path /otus-dev-ai/, assignAppLocation не должен ломать project site.
+```
+
+```text
+Ошибка Supabase не настроен на Pages — передай VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в GitHub Actions при сборке.
+```
+
+```text
+При входе через Яндекс редирект на localhost:5173/?code= — исправь ADDITIONAL_REDIRECT_URLS и normalize OAuth callback.
+```
+
+```text
+Добавь integration_documentation.md: CI/CD, локальный backend, переменные, проверка работы.
+Явно опиши: backend не деплоится в Actions, только локальный docker compose.
+```
+
+---
+
+### Рекомендуемый паттерн промпта (для ревью)
+
+1. **Контекст** — `@Codebase` / путь к workflow / фрагмент логов.  
+2. **Цель** — что должно получиться (файл, green CI, таблица рисков).  
+3. **Ограничения** — не ломать email-login, не деплоить backend в GHA, ESLint без Prettier.  
+4. **Критерии приёмки** — `npm run lint`, `npm test`, `docker compose config -q`, конкретный URL Pages.
+
+Шаблоны для копирования — в [`promts.md`](promts.md).
+
+---
+
 ## Связанные документы
 
-| Документ | Содержание |
+| Документ | Содержение |
 |----------|------------|
 | [Readme.md](Readme.md) | Полная установка, оптимизация, детали логирования |
+| [promts.md](promts.md) | Библиотека промптов: логи, оптимизация frontend/backend |
+| [development_report.md](development_report.md) | Промпты и процесс MVP (Calculator, тесты) |
+| [security_audit.md](security_audit.md) | Аудит безопасности (OWASP, исправления) |
 | [backend/backend_documentation.md](backend/backend_documentation.md) | HTTP API, PostgREST, Auth |
 | [frontend/analytics_goals.md](frontend/analytics_goals.md) | Цели Метрики |
 | [Readme.md#описание-настроек-cicd](Readme.md#описание-настроек-cicd) | Развёрнутое описание workflow |
