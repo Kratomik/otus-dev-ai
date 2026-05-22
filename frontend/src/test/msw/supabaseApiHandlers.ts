@@ -34,14 +34,44 @@ const sampleCalculation = {
   created_at: '2026-05-14T12:00:00.000Z',
 }
 
-const sampleRecommendation = {
-  id: 1,
-  text: 'Test recommendation',
-  co2_saving: '0.1 т CO₂/год',
-  difficulty: 'Легко' as const,
-  impact: 5,
-  is_active: true,
-}
+const sampleRecommendations = [
+  {
+    id: 1,
+    text: 'Test transport tip',
+    co2_saving: '0.4 т CO₂/год',
+    difficulty: 'Легко' as const,
+    impact: 9,
+    category: 'transport' as const,
+    is_active: true,
+  },
+  {
+    id: 2,
+    text: 'Test energy tip',
+    co2_saving: '0.2 т CO₂/год',
+    difficulty: 'Средне' as const,
+    impact: 6,
+    category: 'energy' as const,
+    is_active: true,
+  },
+  {
+    id: 3,
+    text: 'Test food tip',
+    co2_saving: '0.6 т CO₂/год',
+    difficulty: 'Сложно' as const,
+    impact: 10,
+    category: 'food' as const,
+    is_active: true,
+  },
+  {
+    id: 4,
+    text: 'Test shopping tip',
+    co2_saving: '0.2 т CO₂/год',
+    difficulty: 'Средне' as const,
+    impact: 6,
+    category: 'shopping' as const,
+    is_active: true,
+  },
+]
 
 export function tokenPasswordPredicate({ request }: { request: Request }): boolean {
   if (request.method !== 'POST') return false
@@ -191,7 +221,7 @@ export function createDefaultSupabaseHandlers(): HttpHandler[] {
 
     http.get(
       ({ request }) => isOrigin(request.url) && new URL(request.url).pathname === '/rest/v1/recommendations',
-      () => HttpResponse.json([sampleRecommendation], { headers: jsonHeaders }),
+      () => HttpResponse.json(sampleRecommendations, { headers: jsonHeaders }),
     ),
 
     http.post(

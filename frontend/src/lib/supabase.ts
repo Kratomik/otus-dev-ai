@@ -140,6 +140,7 @@ export interface Database {
           co2_saving: string
           difficulty: 'Легко' | 'Средне' | 'Сложно' | null
           impact: number | null
+          category: 'transport' | 'food' | 'energy' | 'shopping' | null
           is_active: boolean
         }
         Insert: {
@@ -148,6 +149,7 @@ export interface Database {
           co2_saving: string
           difficulty?: 'Легко' | 'Средне' | 'Сложно' | null
           impact?: number | null
+          category?: 'transport' | 'food' | 'energy' | 'shopping' | null
           is_active?: boolean
         }
         Update: {
@@ -156,6 +158,7 @@ export interface Database {
           co2_saving?: string
           difficulty?: 'Легко' | 'Средне' | 'Сложно' | null
           impact?: number | null
+          category?: 'transport' | 'food' | 'energy' | 'shopping' | null
           is_active?: boolean
         }
         Relationships: []

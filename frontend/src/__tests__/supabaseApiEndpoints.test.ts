@@ -90,12 +90,12 @@ describe('Supabase HTTP API (MSW)', () => {
     const { result } = renderHook(() => useRecommendations())
     await waitFor(
       () => {
-        expect(result.current.items).toHaveLength(1)
+        expect(result.current.items).toHaveLength(4)
       },
       { timeout: 5000 },
     )
     expect(result.current.error).toBeNull()
-    expect(result.current.items[0]?.text).toBe('Test recommendation')
+    expect(result.current.items[0]?.category).toBe('transport')
   })
 
   it('GET /rest/v1/calculations — useCalculations после signIn', async () => {

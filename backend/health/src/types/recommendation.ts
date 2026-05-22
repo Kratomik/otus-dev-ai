@@ -4,6 +4,7 @@ export interface RecommendationRow {
   co2_saving: string;
   difficulty: string | null;
   impact: number | null;
+  category: string | null;
   is_active: boolean;
 }
 

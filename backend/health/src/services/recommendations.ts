@@ -4,7 +4,7 @@ import type { RecommendationRow } from '../types/recommendation.js';
 import { env } from '../config/env.js';
 
 const SELECT_ACTIVE_RECOMMENDATIONS = `
-  SELECT id, text, co2_saving, difficulty, impact, is_active
+  SELECT id, text, co2_saving, difficulty, impact, category, is_active
   FROM public.recommendations
   WHERE is_active = true
   ORDER BY id DESC

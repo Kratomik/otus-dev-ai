@@ -27,21 +27,27 @@ CREATE TABLE user_progress (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Рекомендации (справочник)
+-- 4. Рекомендации (справочник + категория для персонализации)
 CREATE TABLE recommendations (
   id SERIAL PRIMARY KEY,
   text TEXT NOT NULL,
   co2_saving TEXT NOT NULL,
   difficulty TEXT CHECK (difficulty IN ('Легко','Средне','Сложно')),
   impact INT CHECK (impact BETWEEN 1 AND 10),
+  category TEXT CHECK (category IN ('transport','food','energy','shopping')),
   is_active BOOLEAN DEFAULT TRUE
 );
 
 -- Вставка базовых рекомендаций
-INSERT INTO recommendations (text, co2_saving, difficulty, impact) VALUES
-('Замените 2 поездки на авто на велосипед/пешую прогулку', '0.4 т CO₂/год', 'Легко', 9),
-('Перейдите на LED-лампы и используйте умные розетки', '0.2 т CO₂/год', 'Средне', 6),
-('Сократите потребление красного мяса на 50%', '0.6 т CO₂/год', 'Сложно', 10);
+INSERT INTO recommendations (text, co2_saving, difficulty, impact, category) VALUES
+('Замените 2 поездки на авто на велосипед/пешую прогулку', '0.4 т CO₂/год', 'Легко', 9, 'transport'),
+('Перейдите на LED-лампы и используйте умные розетки', '0.2 т CO₂/год', 'Средне', 6, 'energy'),
+('Сократите потребление красного мяса на 50%', '0.6 т CO₂/год', 'Сложно', 10, 'food'),
+('Используйте общественный транспорт 2 дня в неделю вместо авто', '0.3 т CO₂/год', 'Средне', 8, 'transport'),
+('Снизьте температуру отопления на 1°C и выключайте standby-устройства', '0.15 т CO₂/год', 'Легко', 5, 'energy'),
+('Добавьте 2 растительных ужина в неделю вместо мясных', '0.25 т CO₂/год', 'Легко', 7, 'food'),
+('Покупайте одежду и технику с прицелом на долгий срок, а не импульс', '0.2 т CO₂/год', 'Средне', 6, 'shopping'),
+('Отдавайте предпочтение местным продуктам и сократите доставку на 1 заказ в месяц', '0.18 т CO₂/год', 'Легко', 5, 'shopping');
 
 -- 5. Клиентские ошибки (лог из ErrorBoundary / best-effort)
 CREATE TABLE client_errors (

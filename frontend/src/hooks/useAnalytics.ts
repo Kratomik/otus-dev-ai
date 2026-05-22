@@ -15,6 +15,10 @@ export interface CalculatorCalculatedParams {
 
 export interface RecommendationViewedParams {
   readonly count: number
+  readonly mode?: string
+  readonly dominant_categories?: string
+  readonly total_co2?: number
+  readonly generated_count?: number
 }
 
 export interface RecommendationClickedParams {

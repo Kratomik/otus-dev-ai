@@ -1,28 +1,50 @@
 import { memo, useCallback, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useAnalytics } from '../hooks/useAnalytics'
-import { useRecommendations } from '../hooks/useEcoData'
+import { usePersonalizedRecommendations } from '../hooks/usePersonalizedRecommendations'
+import { CATEGORY_LABELS, isRecommendationCategory } from '../lib/recommendationCategories'
 import { sanitizeDisplayText } from '../lib/security'
 
 function Recommendations() {
-  const { items, loading, error, success, reload } = useRecommendations()
+  const { loading, error, success, reload, lastCalculation, personalization } =
+    usePersonalizedRecommendations()
   const { trackEvent, trackError } = useAnalytics()
 
   const viewItems = useMemo(
     () =>
-      items.map((item) => ({
+      personalization.items.map((item) => ({
         id: item.id,
         text: sanitizeDisplayText(item.text, 500),
         co2Savings: sanitizeDisplayText(item.co2_saving, 64),
         difficulty: sanitizeDisplayText(item.difficulty ?? 'Средне', 32),
         impact: item.impact ?? 5,
+        generated: item.generated === true,
+        categoryLabel:
+          item.category && isRecommendationCategory(item.category)
+            ? CATEGORY_LABELS[item.category]
+            : null,
       })),
-    [items],
+    [personalization.items],
   )
 
   useEffect(() => {
     if (!success) return
-    trackEvent('RecommendationsViewed', { count: items.length })
-  }, [success, items.length, trackEvent])
+    trackEvent('RecommendationsViewed', {
+      count: viewItems.length,
+      mode: personalization.mode,
+      dominant_categories: personalization.priorityCategories.join(','),
+      total_co2: personalization.totalCo2 ?? undefined,
+      generated_count: viewItems.filter((i) => i.generated).length,
+    })
+  }, [
+    success,
+    viewItems.length,
+    personalization.mode,
+    personalization.priorityCategories,
+    personalization.totalCo2,
+    trackEvent,
+    viewItems,
+  ])
 
   useEffect(() => {
     if (!error) return
@@ -40,13 +62,30 @@ function Recommendations() {
     [trackEvent],
   )
 
+  const headerSubtitle = useMemo(() => {
+    if (!lastCalculation) {
+      return 'Сделайте расчёт в калькуляторе — подберём 3–5 советов под ваш след.'
+    }
+    if (personalization.mode === 'personalized' && personalization.priorityCategories.length > 0) {
+      const labels = personalization.priorityCategories.map((c) => CATEGORY_LABELS[c]).join(', ')
+      return `Подобрано ${viewItems.length} советов по приоритету: ${labels}.`
+    }
+    return `Подобрано ${viewItems.length} советов на основе последнего расчёта.`
+  }, [lastCalculation, personalization.mode, personalization.priorityCategories, viewItems.length])
+
   return (
     <section aria-live="polite" className="space-y-4">
       <header>
         <h2 className="text-2xl font-bold">Recommendations</h2>
-        <p className="mt-1 text-sm text-[#0D1B2A]/75">
-          Prioritized actions with measurable impact.
-        </p>
+        <p className="mt-1 text-sm text-[#0D1B2A]/75">{headerSubtitle}</p>
+        {!lastCalculation && (
+          <Link
+            to="/calculator"
+            className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2979FF] underline-offset-2 hover:underline"
+          >
+            Перейти к калькулятору
+          </Link>
+        )}
       </header>
 
       {loading && (
@@ -56,7 +95,7 @@ function Recommendations() {
               aria-hidden="true"
               className="h-4 w-4 animate-spin rounded-full border-2 border-[#2979FF]/30 border-t-[#2979FF]"
             />
-            Loading personalized tips...
+            Подбираем персональные советы…
           </p>
         </div>
       )}
@@ -67,7 +106,7 @@ function Recommendations() {
           <p className="text-sm text-red-700/90">{error}</p>
           <button
             type="button"
-            onClick={reload}
+            onClick={() => void reload()}
             aria-label="Retry loading recommendations"
             className="min-h-[44px] rounded-xl bg-[#0D1B2A] px-4 py-2 text-sm font-semibold text-white"
           >
@@ -84,7 +123,7 @@ function Recommendations() {
           </p>
           <button
             type="button"
-            onClick={reload}
+            onClick={() => void reload()}
             aria-label="Refresh recommendations"
             className="min-h-[44px] rounded-xl bg-[#2979FF] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1E67E6] active:bg-[#1757BD] motion-reduce:transition-none"
           >
@@ -107,18 +146,28 @@ function Recommendations() {
                 aria-label={`Recommendation ${index + 1}: ${item.difficulty}, impact ${item.impact} out of 10`}
                 className="min-h-[44px] w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#2979FF] focus:ring-offset-2"
               >
-              <p className="font-semibold text-[#0D1B2A]">{item.text}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#00E676]/20 px-3 text-sm font-medium text-[#0D1B2A]">
-                  Экономия: {item.co2Savings}
-                </span>
-                <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#2979FF]/15 px-3 text-sm font-medium text-[#0D1B2A]">
-                  Сложность: {item.difficulty}
-                </span>
-                <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#0D1B2A] px-3 text-sm font-semibold text-white">
-                  Impact: {item.impact}/10
-                </span>
-              </div>
+                <p className="font-semibold text-[#0D1B2A]">{item.text}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.categoryLabel ? (
+                    <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#F5F9F7] px-3 text-sm font-medium text-[#0D1B2A]">
+                      {item.categoryLabel}
+                    </span>
+                  ) : null}
+                  {item.generated ? (
+                    <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#00E676]/25 px-3 text-sm font-medium text-[#0D1B2A]">
+                      По вашему расчёту
+                    </span>
+                  ) : null}
+                  <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#00E676]/20 px-3 text-sm font-medium text-[#0D1B2A]">
+                    Экономия: {item.co2Savings}
+                  </span>
+                  <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#2979FF]/15 px-3 text-sm font-medium text-[#0D1B2A]">
+                    Сложность: {item.difficulty}
+                  </span>
+                  <span className="inline-flex min-h-[44px] items-center rounded-xl bg-[#0D1B2A] px-3 text-sm font-semibold text-white">
+                    Impact: {item.impact}/10
+                  </span>
+                </div>
               </button>
             </li>
           ))}
