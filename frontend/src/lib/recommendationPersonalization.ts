@@ -213,7 +213,7 @@ export function generatePersonalizedRecommendations(
     merged.push(row)
   }
 
-  let items: GeneratedRecommendation[] = merged.slice(0, PERSONALIZED_TIPS_MAX)
+  const items: GeneratedRecommendation[] = merged.slice(0, PERSONALIZED_TIPS_MAX)
 
   if (items.length < PERSONALIZED_TIPS_MIN) {
     for (const row of sorted) {
