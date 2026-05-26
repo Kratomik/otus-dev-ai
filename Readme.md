@@ -78,6 +78,48 @@ sh utils/generate-keys.sh --update-env
 
 После смены **`ANON_KEY`** его же нужно будет прописать во frontend (см. шаг 4).
 
+### 2.3. Образ Auth с входом через Яндекс (`ecotrack-gotrue:yandex`)
+
+Стоковый **`supabase/gotrue`** не содержит OAuth-провайдер **Yandex**. В EcoTrack сервис **`auth`** в `docker-compose.yml` использует локальный образ **`ecotrack-gotrue:yandex`**: это GoTrue **v2.186.0** с патчем из каталога **`backend/auth/`** (исходники, `provider/yandex.go`, патчи).
+
+Перед первым `docker compose up` (или после смены кода auth) соберите образ из **`backend/`**:
+
+```bash
+cd backend
+./auth/build.sh
+```
+
+Скрипт по умолчанию:
+
+1. При отсутствии `auth/gotrue-src/` вызывает **`auth/prepare-source.sh`** (скачивание [supabase/auth](https://github.com/supabase/auth) и патчи).
+2. Компилирует бинарник **`auth/dist/auth`**.
+3. Собирает Docker-образ с тегом **`ecotrack-gotrue:yandex`** (переопределение: `AUTH_IMAGE=my-tag ./auth/build.sh`).
+
+**Какой Dockerfile использовать**
+
+| Файл | Когда |
+|------|--------|
+| **`auth/Dockerfile`** | **Рекомендуется.** База `supabase/gotrue:v2.186.0`, подмена бинарника из `dist/auth`. Именно его вызывает `./auth/build.sh` и `docker compose` (`build.context: ./auth`). |
+| **`auth/Dockerfile.offline`** | Полная сборка GoTrue внутри Docker без отдельного `go build` на хосте. Сначала: `./auth/prepare-source.sh`, затем `docker build -f auth/Dockerfile.offline -t ecotrack-gotrue:yandex auth/`. |
+
+Эквивалент ручной сборки (после `./auth/build.sh`):
+
+```bash
+cd backend
+docker build -f auth/Dockerfile -t ecotrack-gotrue:yandex auth/
+```
+
+В **`backend/.env`** задайте **`YANDEX_CLIENT_ID`** и **`YANDEX_CLIENT_SECRET`** (см. `backend/.env.example`, блок «Yandex OAuth»). Redirect URI в [кабинете Яндекс ID](https://oauth.yandex.ru/): `http://localhost:8000/auth/v1/callback`.
+
+После пересборки образа перезапустите auth:
+
+```bash
+./auth/recreate-auth.sh
+# при 504 на callback из Docker: AUTH_USE_HOST_NETWORK=1 ./auth/recreate-auth.sh
+```
+
+Контейнер в Compose называется **`supabase-auth`**, образ в `docker images` — **`ecotrack-gotrue:yandex`**.
+
 ---
 
 ## 3. Запуск Docker Compose
